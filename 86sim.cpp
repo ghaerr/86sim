@@ -1,3 +1,10 @@
+/*
+ * 8086 emulator
+ *
+ * Orginally from Andrew Jenner's reenigne project
+ * DOS enhancements by TK Chia
+ * ELKS executable support by Greg Haerr
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -5,6 +12,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <string.h>
 
 typedef unsigned char Byte;
 typedef unsigned short int Word;
@@ -12,16 +20,16 @@ typedef unsigned int DWord;
 
 Word registers[12];
 Byte* byteRegisters[8];
-Word ip = 0x100;
+Word ip;
 Byte* ram;
 Byte* initialized;
 char* pathBuffers[2];
 int* fileDescriptors;
 int fileDescriptorCount = 6;
-Word loadSegment = 0x0212;
+Word loadSegment;
 bool useMemory;
 Word address;
-Word flags = 2;
+Word flags;
 Byte modRM;
 bool wordSize;
 DWord data;
@@ -43,9 +51,94 @@ bool running = false;
 DWord stackLow;
 int oCycle;
 
+#if ELKS
+extern char **environ;
+unsigned int sysbrk;
+
+#define isprint(c) ((c) > ' ' && (c) <= '~')
+
+static int lastnum[16] = {-1};
+static int lastaddr = -1;
+
+static void
+printline(int address, int *num, char *chr, int count, int summary)
+{
+	int   j;
+
+	if (lastaddr >= 0)
+	{
+		for (j = 0; j < count; j++)
+			if (num[j] != lastnum[j])
+				break;
+		if (j == 16 && summary)
+		{
+			if (lastaddr + 16 == address)
+			{
+				printf("*\n");
+			}
+			return;
+		}
+	}
+
+	lastaddr = address;
+	printf("%04x:", address);
+	for (j = 0; j < count; j++)
+	{
+		if (j == 8)
+			putchar(' ');
+		if (num[j] >= 0)
+			printf(" %02x", num[j]);
+		else
+			printf("   ");
+		lastnum[j] = num[j];
+		num[j] = -1;
+	}
+
+	for (j=count; j < 16; j++)
+	{
+		if (j == 8)
+			putchar(' ');
+		printf("   ");
+	}
+
+	printf("  ");
+	for (j = 0; j < count; j++)
+		printf("%c", chr[j]);
+	printf("\n");
+}
+
+
+void hexdump(int startoff, unsigned char *addr, int count, int summary)
+{
+	int offset;
+	char buf[20];
+	int num[16];
+
+	for (offset = startoff; count > 0; count -= 16, offset += 16)
+	{
+		int j, ch;
+
+		memset(buf, 0, 16);
+		for (j = 0; j < 16; j++)
+			num[j] = -1;
+		for (j = 0; j < 16; j++)
+		{
+			ch = *addr++;
+
+			num[j] = ch;
+			if (isprint(ch) && ch < 0x80)
+				buf[j] = ch;
+			else
+				buf[j] = '.';
+		}
+		printline(offset, num, buf, count > 16? 16: count, summary);
+	}
+}
+#endif
+
 void o(char c)
 {
-#if 1
+#if 0
     while (oCycle < ios) {
         ++oCycle;
         printf(" ");
@@ -114,7 +207,9 @@ DWord physicalAddress(Word offset, int seg, bool write)
     if ((initialized[a >> 3] & (1 << (a & 7))) == 0 || bad) {
         fprintf(stderr, "Accessing invalid address %04x:%04x.\n",
             segmentAddress, offset);
+#if MSDOS
         runtimeError("");
+#endif
     }
     return a;
 }
@@ -147,7 +242,7 @@ Word readWord(Word offset, int seg = -1)
     Word r = readByte(offset, seg);
     return r + (readByte(offset + 1, seg) << 8);
 }
-Word read(Word offset, int seg = -1)
+Word readwb(Word offset, int seg = -1)
 {
     return wordSize ? readWord(offset, seg) : readByte(offset, seg);
 }
@@ -160,7 +255,7 @@ void writeWord(Word value, Word offset, int seg = -1)
     writeByte((Byte)value, offset, seg);
     writeByte((Byte)(value >> 8), offset + 1, seg);
 }
-void write(Word value, Word offset, int seg = -1)
+void writewb(Word value, Word offset, int seg = -1)
 {
     if (wordSize)
         writeWord(value, offset, seg);
@@ -311,7 +406,7 @@ Word lodS()
     address = si();
     setSI(si() + stringIncrement());
     segment = 3;
-    return read(address);
+    return readwb(address);
 }
 void doRep(bool compare)
 {
@@ -326,20 +421,22 @@ Word lodDIS()
 {
     address = di();
     setDI(di() + stringIncrement());
-    return read(address, 0);
+    return readwb(address, 0);
 }
 void stoS(Word data)
 {
     address = di();
     setDI(di() + stringIncrement());
-    write(data, address, 0);
+    writewb(data, address, 0);
 }
 void push(Word value)
 {
     o('{');
     setSP(sp() - 2);
+#if 0 //MSDOS // FIXME - stack overflow with some DOS programs (test.exe)
     if (((DWord)registers[10] << 4) + sp() <= stackLow)
         runtimeError("Stack overflow");
+#endif
     writeWord(value, sp(), 2);
 }
 Word pop() { Word r = readWord(sp(), 2); setSP(sp() + 2); o('}'); return r; }
@@ -429,7 +526,7 @@ Word readEA2()
             return registers[address];
         return *byteRegisters[address];
     }
-    return read(address);
+    return readwb(address);
 }
 Word readEA() { address = ea(); return readEA2(); }
 void finishWriteEA(Word data)
@@ -441,7 +538,7 @@ void finishWriteEA(Word data)
             *byteRegisters[address] = (Byte)data;
     }
     else
-        write(data, address);
+        writewb(data, address);
 }
 void writeEA(Word data) { ea(); finishWriteEA(data); }
 void farLoad()
@@ -482,6 +579,84 @@ int dosError(int e)
     return 0;
 }
 
+#if ELKS
+void
+write_environ(char **argv, char **envp)
+{
+	char **p;
+	int argv_len=0, argv_count=0;
+	int envp_len=0, envp_count=0;
+	int stack_bytes;
+	int pip;
+	int pcp, baseoff;
+
+	/* How much space for argv */
+	for(p=argv; p && *p && argv_len >= 0; p++)
+	{
+	   //printf("arg %s\n", *p);
+	   argv_count++; argv_len += strlen(*p)+1;
+	}
+
+	/* How much space for envp */
+	for(p=envp; p && *p && envp_len >= 0; p++)
+	{
+	   //printf("env %s\n", *p);
+	   envp_count++; envp_len += strlen(*p)+1;
+	}
+
+	/* tot it all up */
+	stack_bytes = 2				/* argc */
+	            + argv_count * 2 + 2	/* argv */
+		    + argv_len
+		    + envp_count * 2 + 2	/* envp */
+		    + envp_len;
+
+	printf("argv = (%d,%d), envp=(%d,%d), size=0x%x\n",
+	        argv_count, argv_len, envp_count, envp_len, stack_bytes);
+
+	stack_bytes = (stack_bytes + 1) & ~1;
+
+	setSP(sp() - stack_bytes);
+	int stk_ptr = sp();
+
+	/* Now copy in the strings */
+	pip = stk_ptr;
+	pcp = stk_ptr+2*(1+argv_count+1+envp_count+1);
+
+	/* baseoff = stk_ptr + stack_bytes; */
+	/* baseoff = stk_ptr; */
+	baseoff = 0;
+	writeWord(argv_count, pip, 2);	pip += 2;
+	for(p=argv; p && *p; p++)
+	{
+	   int n;
+
+	   writeWord(pcp-baseoff, pip, 2);	pip += 2;
+	   //printf("argv = %d, ", pcp-baseoff);
+	   n = strlen(*p)+1;
+	   for (int i = 0; i<n; i++) {
+		writeByte((*p)[i], pcp+i, 2);
+		//printf("%c", (*p)[i]);
+	   }
+	   //printf("\n");
+	   pcp += n;
+	}
+	writeWord(0, pip, 2);	pip += 2;
+
+	for(p=envp; p && *p; p++)
+	{
+	   int n;
+
+	   writeWord(pcp-baseoff, pip, 2);	pip += 2;
+	   n = strlen(*p)+1;
+	   for (int i = 0; i<n; i++)
+		writeByte((*p)[i], pcp+i, 2);
+	   pcp += n;
+	}
+	writeWord(0, pip, 2);	pip += 2;
+}
+#endif
+
 int main(int argc, char* argv[])
 {
     if (argc < 2) {
@@ -505,9 +680,16 @@ int main(int argc, char* argv[])
         error("telling");
     if (fseek(fp, 0, SEEK_SET) != 0)
         error("seeking");
+#if ELKS
+	loadSegment = 0x1000 - 2;
+#endif
+#if MSDOS
+	loadSegment = 0x0212;
+#endif
     int loadOffset = loadSegment << 4;
     if (length > 0x100000 - loadOffset)
         length = 0x100000 - loadOffset;
+#if MSDOS
     int envSegment = loadSegment - 0x1c;
     registers[8] = envSegment;
     writeByte(0, 0);  // No environment for now
@@ -555,9 +737,64 @@ int main(int argc, char* argv[])
     writeWord(0x9fff, 2);
     writeByte(i - 0x81, 0x80);
     writeByte(13, i);
+#endif
     if (fread(&ram[loadOffset], length, 1, fp) != 1)
         error("reading");
     fclose(fp);
+#if ELKS
+	flags = 0x3202;
+	// FIXME check hlen < 0x20, unset hdr access after, check tseg & 15
+    for (int i = 0; i < 0x20; ++i) {
+        registers[8] = loadSegment + (i >> 4); // ES
+        physicalAddress(i & 15, 0, true);
+    }
+    // 8 = ES, 9 = CS, 10 = SS, 11 = DS YYY
+    for (int i = 0; i < 4; ++i)
+        registers[8 + i] = loadSegment;
+    int hlen = readWord(0x04);
+	int version = readWord(0x06);
+	int tseg = readWord(0x08);
+	int dseg = readWord(0x0C);
+	int bseg = readWord(0x10);
+	int entry = readWord(0x14);
+	int chmem = readWord(0x18);
+	int minstack = readWord(0x1C);
+    printf("hlen %x version %x tseg %x dseg %x bseg %x entry %x chmem %x minstack %x\n",
+		hlen, version, tseg, dseg, bseg, entry, chmem, minstack);
+    for (int i = hlen; i < length+bseg+8192; ++i) {
+        registers[8] = loadSegment + (i >> 4);
+        physicalAddress(i & 15, 0, true); // ES
+    }
+    registers[9] = loadSegment + (hlen>>4); // CS
+    registers[10] = loadSegment + (hlen>>4) + ((tseg + 15) >> 4); // SS
+    registers[11] = registers[10]; // DS = SS
+	sysbrk = dseg + bseg + 4096;
+	int stack = sysbrk + 4096;
+	//int stack = 0xfffe;
+    setSP(stack);
+	write_environ(argv+1, NULL);
+	//hexdump(sp(), &ram[physicalAddress(sp(), 2, false)], stack-sp(), 0);
+	//int extra = stack - sp();
+	printf("Text %x Data %x Stack %x\n", tseg, dseg+bseg+4096, 4096);
+	ip = entry;
+
+	for (int i=dseg; i<dseg+bseg; i++)	// clear BSS
+		writeByte(0, i, 3);		// DS:i
+
+	printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", registers[9], ip, registers[11],
+					registers[10], sp());
+    registers[8] = registers[11]; // ES = DS
+    setAX(0x0000);
+    setCX(0x00FF);	// MUST BE 0x00FF as for big endian test below!!!!
+    setDX(0x0000);
+    registers[3] = 0x0000;  // BX
+    registers[5] = 0x0000;  // BP
+    setSI(0x0000);
+    setDI(0x0000);
+#endif
+#if MSDOS
+	ip = 0x100;
+	flags = 2;
     for (int i = 0; i < length; ++i) {
         registers[8] = loadSegment + (i >> 4);
         physicalAddress(i & 15, 0, true);
@@ -588,16 +825,16 @@ int main(int argc, char* argv[])
             writeWord(readWord(offset, 1) + imageSegment, offset, 1);
             relocationData += 4;
         }
-        loadSegment = imageSegment;  // Prevent further access to header
-        Word ss = readWord(0x10e) + loadSegment;  // SS
+        //loadSegment = imageSegment;  // Prevent further access to header
+        Word ss = readWord(0x10e) + imageSegment;  // SS
         registers[10] = ss;
         setSP(readWord(0x110));
         stackLow =
-            (((exeLength - headerLength + 15) >> 4) + loadSegment) << 4;
+            (((exeLength - headerLength + 15) >> 4) + imageSegment) << 4;
         if (stackLow < ((DWord)ss << 4) + 0x10)
             stackLow = ((DWord)ss << 4) + 0x10;
         ip = readWord(0x114);
-        registers[9] = readWord(0x116) + loadSegment;  // CS
+        registers[9] = readWord(0x116) + imageSegment;  // CS
     }
     else {
         if (length > 0xff00) {
@@ -626,6 +863,7 @@ int main(int argc, char* argv[])
             ++d;
         } while (d != 0);
     }
+
 #if 1
     // Fill up parts of the interrupt vector table, the BIOS clock tick count,
     // and parts of the BIOS ROM area with stuff, for the benefit of the far
@@ -653,6 +891,7 @@ int main(int argc, char* argv[])
     registers[5] = 0x091C;  // BP
     setSI(0x0100);
     setDI(0xFFFE);
+#endif
     fileDescriptors = (int*)alloc(6*sizeof(int));
     fileDescriptors[0] = STDIN_FILENO;
     fileDescriptors[1] = STDOUT_FILENO;
@@ -901,13 +1140,13 @@ int main(int argc, char* argv[])
                 break;
             case 0xa0: case 0xa1:  // MOV accum,xv
                 segment = 3;
-                data = read(fetchWord());
+                data = readwb(fetchWord());
                 setAccum();
                 o('m');
                 break;
             case 0xa2: case 0xa3:  // MOV xv,accum
                 segment = 3;
-                write(getAccum(), fetchWord());
+                writewb(getAccum(), fetchWord());
                 o('m');
                 break;
             case 0xa4: case 0xa5:  // MOVSv
@@ -984,6 +1223,54 @@ int main(int argc, char* argv[])
                 o('m');
                 break;
             case 0xcd:
+#if ELKS
+				unsigned char *p;
+				unsigned int v;
+                data = fetchByte();
+				v = (data << 8) | ax();
+                switch (v) {
+				// ARGS: BX, CX, DX, DI, SI XXX
+				case 0x8001:		// exit
+					printf("EXIT %d\n", bx());
+					exit(bx());
+				case 0x8004:		// write
+					//printf("WRITE %d,%x,%d\n", bx(), cx(), dx());
+            		p = &ram[physicalAddress(cx(), 2, false)]; // SS
+					v = write(bx(), p, dx());
+					//printf("WRITE %d,%d,%d = %d\n", bx(), cx(), dx(), v);
+					setAX(v);
+					break;
+				case 0x8005:		// open
+            		p = &ram[physicalAddress(bx(), 2, false)]; // SS
+					printf("open '%s',%x,%o\n", p, cx(), dx());
+					setAX(-2);
+					break;
+				case 0x8036:		// ioctl
+					printf("IOCTL %d,%c%02d,%x\n", bx(), cx()>>8, cx()&0xff, dx());
+					setAX(bx() < 3? 0: -1);
+					break;
+				case 0x8000+17:		// brk
+					printf("BRK old %x new %x\n", sysbrk, bx());
+					sysbrk = bx();
+					setAX(0);
+					break;
+				case 0x8000+69:		// sbrk
+					printf("SBRK %d old %x new %x SP %x\n", bx(), sysbrk, sysbrk+bx(), sp());
+					v = sysbrk;
+					sysbrk += bx();
+					writeWord(v, cx(), 2); // SS
+					setAX(0);
+					break;
+                default:
+                    fprintf(stderr, "Unknown SYS call: int 0x%02x, "
+                        "AX %x(%d) BX %x CX %x DX %x\n", (unsigned)data,
+						ax(), ax(), bx(), cx(), dx());
+                    //runtimeError("");
+					setAX(0xffff);
+					break;
+                }
+#endif
+#if MSDOS
                 data = fetchByte();
                 switch (data << 8 | ah()) {
                     case 0x1a00:
@@ -994,6 +1281,12 @@ int main(int argc, char* argv[])
                         setAL(readByte(0x0470, 0));
                         registers[8] = data;
                         break;
+		    		case 0x2109:
+						{
+						char *p = strchr((char *)dsdx(), '$');
+						if (p) write(STDOUT_FILENO, (char *)dsdx(), p-(char *)dsdx());
+						}
+						break;
                     case 0x2130:
                         setAX(0x1403);
                         setBX(0xff00);
@@ -1182,7 +1475,7 @@ int main(int argc, char* argv[])
                         runtimeError("");
                         break;
                     case 0x214c:
-                        printf("*** Bytes: %i\n", length);
+                        printf("\n*** Bytes: %i\n", length);
                         printf("*** Cycles: %i\n", ios);
                         printf("*** EXIT code %i\n", al());
                         exit(0);
@@ -1218,7 +1511,9 @@ int main(int argc, char* argv[])
                         fprintf(stderr, "Unknown DOS/BIOS call: int 0x%02x, "
                             "ah = 0x%02x", (unsigned)data, (unsigned)ah());
                         runtimeError("");
+						break;
                 }
+#endif
                 o('$');
                 break;
             case 0xcf:  // IRET

@@ -27,32 +27,35 @@ bool wordSize;
 DWord data;
 DWord destination;
 DWord source;
-int segment;
+int segment = 0;
 int rep = 0;
 bool repeating = false;
 Word savedIP;
 Word savedCS;
 int segmentOverride = -1;
-Word remainder;
+Word residue;
 Byte opcode;
 int aluOperation;
 const char* filename;
 int length;
 int ios;
 bool running = false;
-int stackLow;
+DWord stackLow;
 int oCycle;
 
 void o(char c)
 {
+#if 1
     while (oCycle < ios) {
         ++oCycle;
         printf(" ");
     }
     ++oCycle;
     printf("%c", c);
+#endif
 }
 
+Word es() { return registers[8]; }
 Word cs() { return registers[9]; }
 void error(const char* operation)
 {
@@ -101,7 +104,7 @@ DWord physicalAddress(Word offset, int seg, bool write)
             seg = segmentOverride;
     }
     Word segmentAddress = registers[8 + seg];
-    DWord a = ((segmentAddress << 4) + offset) & 0xfffff;
+    DWord a = (((DWord)segmentAddress << 4) + offset) & 0xfffff;
     bool bad = false;
     if (write) {
         if (a < ((DWord)loadSegment << 4) - 0x100 && running)
@@ -197,15 +200,17 @@ void div()
         --data;
         product -= source;
     }
-    remainder = destination - product;
+    residue = destination - product;
     if (negative)
         data = (unsigned)-(signed)data;
     if (dividendNegative)
-        remainder = (unsigned)-(signed)remainder;
+        residue = (unsigned)-(signed)residue;
 }
 void doJump(Word newIP)
 {
+#if 0
     printf("\n");
+#endif
     ip = newIP;
 }
 void jumpShort(Byte data, bool jump)
@@ -333,7 +338,7 @@ void push(Word value)
 {
     o('{');
     setSP(sp() - 2);
-    if (sp() <= stackLow)
+    if (((DWord)registers[10] << 4) + sp() <= stackLow)
         runtimeError("Stack overflow");
     writeWord(value, sp(), 2);
 }
@@ -588,9 +593,9 @@ int main(int argc, char* argv[])
         registers[10] = ss;
         setSP(readWord(0x110));
         stackLow =
-            ((((exeLength - headerLength + 15) >> 4) + loadSegment) - ss) << 4;
-        if (stackLow < 0)
-            stackLow = 0;
+            (((exeLength - headerLength + 15) >> 4) + loadSegment) << 4;
+        if (stackLow < ((DWord)ss << 4) + 0x10)
+            stackLow = ((DWord)ss << 4) + 0x10;
         ip = readWord(0x114);
         registers[9] = readWord(0x116) + loadSegment;  // CS
     }
@@ -600,15 +605,45 @@ int main(int argc, char* argv[])
             exit(1);
         }
         setSP(0xFFFE);
-        stackLow = length + 0x100;
+        stackLow = ((DWord)loadSegment << 4) + length;
     }
     // Some testcases copy uninitialized stack data, so mark as initialized
     // any locations that could possibly be stack.
-    for (DWord d = (loadSegment << 4) + length;
-        d < (DWord)((registers[10] << 4) + sp()); ++d) {
-        registers[8] = d >> 4;
-        writeByte(0, d & 15, 0);
+    if (sp()) {
+        Word d = 0;
+        if (((DWord)registers[10] << 4) < stackLow)
+            d = stackLow - ((DWord)registers[10] << 4);
+        while (d < sp()) {
+            writeByte(0, d, 2);
+            ++d;
+        }
+    } else {
+        Word d = 0;
+        if (((DWord)registers[10] << 4) < stackLow)
+            d = stackLow - ((DWord)registers[10] << 4);
+        do {
+            writeByte(0, d, 2);
+            ++d;
+        } while (d != 0);
     }
+#if 1
+    // Fill up parts of the interrupt vector table, the BIOS clock tick count,
+    // and parts of the BIOS ROM area with stuff, for the benefit of the far
+    // pointer tests.
+    registers[8] = 0x0000;
+    writeWord(0x0000, 0x0080);
+    writeWord(0xFFFF, 0x0082);
+    writeWord(0x0058, 0x046C);
+    writeWord(0x000C, 0x046E);
+    writeByte(0x00, 0x0470);
+    registers[8] = 0xF000;
+    for (i = 0; i < 0x100; i += 2)
+        writeWord(0xF4F4, 0xFF00 + (unsigned)i);
+    // We need some variety in the ROM BIOS content...
+    writeByte(0xEA, 0xFFF0);
+    writeWord(0xFFF0, 0xFFF1);
+    writeWord(0xF000, 0xFFF3);
+#endif
     ios = 0;
     registers[8] = loadSegment - 0x10;
     setAX(0x0000);
@@ -865,12 +900,14 @@ int main(int argc, char* argv[])
                 o('L');
                 break;
             case 0xa0: case 0xa1:  // MOV accum,xv
-                data = read(fetchWord(), 3);
+                segment = 3;
+                data = read(fetchWord());
                 setAccum();
                 o('m');
                 break;
             case 0xa2: case 0xa3:  // MOV xv,accum
-                write(getAccum(), fetchWord(), 3);
+                segment = 3;
+                write(getAccum(), fetchWord());
                 o('m');
                 break;
             case 0xa4: case 0xa5:  // MOVSv
@@ -948,17 +985,21 @@ int main(int argc, char* argv[])
                 break;
             case 0xcd:
                 data = fetchByte();
-                if (data != 0x21) {
-                    fprintf(stderr, "Unknown interrupt 0x%02x", data);
-                    runtimeError("");
-                }
-                switch (ah()) {
-                    case 0x30:
+                switch (data << 8 | ah()) {
+                    case 0x1a00:
+                        data = registers[8];
+                        registers[8] = 0;
+                        setDX(readWord(0x046c, 0));
+                        setCX(readWord(0x046e, 0));
+                        setAL(readByte(0x0470, 0));
+                        registers[8] = data;
+                        break;
+                    case 0x2130:
                         setAX(0x1403);
                         setBX(0xff00);
                         setCX(0);
                         break;
-                    case 0x39:
+                    case 0x2139:
                         if (mkdir(dsdx(), 0700) == 0)
                             setCF(false);
                         else {
@@ -966,7 +1007,7 @@ int main(int argc, char* argv[])
                             setAX(dosError(errno));
                         }
                         break;
-                    case 0x3a:
+                    case 0x213a:
                         if (rmdir(dsdx()) == 0)
                             setCF(false);
                         else {
@@ -974,7 +1015,7 @@ int main(int argc, char* argv[])
                             setAX(dosError(errno));
                         }
                         break;
-                    case 0x3b:
+                    case 0x213b:
                         if (chdir(dsdx()) == 0)
                             setCF(false);
                         else {
@@ -982,7 +1023,7 @@ int main(int argc, char* argv[])
                             setAX(dosError(errno));
                         }
                         break;
-                    case 0x3c:
+                    case 0x213c:
                         fileDescriptor = creat(dsdx(), 0700);
                         if (fileDescriptor != -1) {
                             setCF(false);
@@ -995,7 +1036,7 @@ int main(int argc, char* argv[])
                             setAX(dosError(errno));
                         }
                         break;
-                    case 0x3d:
+                    case 0x213d:
                         fileDescriptor = open(dsdx(), al() & 3, 0700);
                         if (fileDescriptor != -1) {
                             setCF(false);
@@ -1007,7 +1048,7 @@ int main(int argc, char* argv[])
                             setAX(dosError(errno));
                         }
                         break;
-                    case 0x3e:
+                    case 0x213e:
                         fileDescriptor = fileDescriptors[bx()];
                         if (fileDescriptor == -1) {
                             setCF(true);
@@ -1024,7 +1065,7 @@ int main(int argc, char* argv[])
                             setCF(false);
                         }
                         break;
-                    case 0x3f:
+                    case 0x213f:
                         fileDescriptor = fileDescriptors[bx()];
                         if (fileDescriptor == -1) {
                             setCF(true);
@@ -1042,7 +1083,7 @@ int main(int argc, char* argv[])
                             setAX(data);
                         }
                         break;
-                    case 0x40:
+                    case 0x2140:
                         fileDescriptor = fileDescriptors[bx()];
                         if (fileDescriptor == -1) {
                             setCF(true);
@@ -1059,7 +1100,7 @@ int main(int argc, char* argv[])
                             setAX(data);
                         }
                         break;
-                    case 0x41:
+                    case 0x2141:
                         if (unlink(dsdx()) == 0)
                             setCF(false);
                         else {
@@ -1067,7 +1108,7 @@ int main(int argc, char* argv[])
                             setAX(dosError(errno));
                         }
                         break;
-                    case 0x42:
+                    case 0x2142:
                         fileDescriptor = fileDescriptors[bx()];
                         if (fileDescriptor == -1) {
                             setCF(true);
@@ -1086,7 +1127,7 @@ int main(int argc, char* argv[])
                             setAX(dosError(errno));
                         }
                         break;
-                    case 0x44:
+                    case 0x2144:
                         if (al() != 0) {
                             fprintf(stderr, "Unknown IOCTL 0x%02x", al());
                             runtimeError("");
@@ -1113,7 +1154,7 @@ int main(int argc, char* argv[])
                             }
                         }
                         break;
-                    case 0x47:
+                    case 0x2147:
                         if (getcwd(pathBuffers[0], 64) != 0) {
                             setCF(false);
                             initString(si(), 3, true, 0);
@@ -1123,13 +1164,30 @@ int main(int argc, char* argv[])
                             setAX(dosError(errno));
                         }
                         break;
-                    case 0x4c:
+                    case 0x214a:
+                        // Only allow attempts to "resize" the PSP segment,
+                        // and check that CS:IP and SS:SP do not overshoot the
+                        // segment end
+                        if (es() == loadSegment - 0x10) {
+                            DWord memEnd = (DWord)(es() + bx()) << 4;
+                            if (physicalAddress(ip, 1, false) < memEnd &&
+                                physicalAddress(sp() - 1, 2, true) < memEnd) {
+                                setCF(false);
+                                break;
+                            }
+                        }
+                        fprintf(stderr, "Bad attempt to resize DOS memory "
+                            "block: int 0x21, ah = 0x4a, bx = 0x%04x, "
+                            "es = 0x%04x", (unsigned)bx(), (unsigned)es());
+                        runtimeError("");
+                        break;
+                    case 0x214c:
                         printf("*** Bytes: %i\n", length);
                         printf("*** Cycles: %i\n", ios);
                         printf("*** EXIT code %i\n", al());
                         exit(0);
                         break;
-                    case 0x56:
+                    case 0x2156:
                         if (rename(dsdx(), initString(di(), 0, false, 1)) == 0)
                             setCF(false);
                         else {
@@ -1137,8 +1195,28 @@ int main(int argc, char* argv[])
                             setAX(dosError(errno));
                         }
                         break;
+                    case 0x2157:
+                        switch (al()) {
+                            case 0x00:
+                                fileDescriptor = fileDescriptors[bx()];
+                                if (fileDescriptor == -1) {
+                                    setCF(true);
+                                    setAX(6);  // Invalid handle
+                                    break;
+                                }
+                                setCX(0x0000); // Return a "reasonable" file
+                                setDX(0x0021); // time and file date
+                                setCF(false);
+                                break;
+                            default:
+                                fprintf(stderr, "Unknown DOS call: int 0x21, "
+                                    "ax = 0x%04x", (unsigned)ax());
+                                runtimeError("");
+                        }
+                        break;
                     default:
-                        fprintf(stderr, "Unknown DOS call 0x%02x", ah());
+                        fprintf(stderr, "Unknown DOS/BIOS call: int 0x%02x, "
+                            "ah = 0x%02x", (unsigned)data, (unsigned)ah());
                         runtimeError("");
                 }
                 o('$');
@@ -1260,7 +1338,8 @@ int main(int argc, char* argv[])
                 break;
             case 0xe9:  // JMP cw
                 o('j');
-                doJump(ip + fetchWord());
+                data = fetchWord();
+                doJump(ip + data);
                 break;
             case 0xea:  // JMP cp
                 o('j');
@@ -1359,7 +1438,7 @@ int main(int argc, char* argv[])
                                 if (data > 0x7f && data < 0xffffff80)
                                     divideOverflow();
                             }
-                            setAH((Byte)remainder);
+                            setAH((Byte)residue);
                             setAL(data);
                         }
                         else {
@@ -1373,7 +1452,7 @@ int main(int argc, char* argv[])
                                 if (data > 0x7fff && data < 0xffff8000)
                                     divideOverflow();
                             }
-                            setDX(remainder);
+                            setDX(residue);
                             setAX(data);
                         }
                         o("/\\"[opcode & 1]);

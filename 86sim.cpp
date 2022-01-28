@@ -4,6 +4,7 @@
  * Orginally from Andrew Jenner's reenigne project
  * DOS enhancements by TK Chia
  * ELKS executable support by Greg Haerr
+ * Disassembler added by Greg Haerr
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,7 +13,6 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <string.h>
 
 typedef unsigned char Byte;
 typedef unsigned short int Word;
@@ -32,6 +32,7 @@ Word address;
 Word flags;
 Byte modRM;
 bool wordSize;
+bool sourceIsRM;
 DWord data;
 DWord destination;
 DWord source;
@@ -50,6 +51,9 @@ int ios;
 bool running = false;
 DWord stackLow;
 int oCycle;
+
+Word disasm(Word ip);
+bool f_noaddr;
 
 void o(char c)
 {
@@ -1140,6 +1144,7 @@ void handle_intcall(void)
 				case 0x8004:		// write
 					//printf("WRITE %d,%x,%d\n", bx(), cx(), dx());
             		p = &ram[physicalAddress(cx(), 2, false)]; // SS
+if (f_noaddr) v = 0; else
 					v = write(bx(), p, dx());
 					//printf("WRITE %d,%d,%d = %d\n", bx(), cx(), dx(), v);
 					setAX(v);
@@ -1150,6 +1155,7 @@ void handle_intcall(void)
 					setAX(-2);
 					break;
 				case 0x8036:		// ioctl
+if (!f_noaddr)
 					printf("IOCTL %d,%c%02d,%x\n", bx(), cx()>>8, cx()&0xff, dx());
 					setAX(bx() < 3? 0: -1);
 					break;
@@ -1188,6 +1194,7 @@ void emulator(void)
     bool prefix = false;
     for (int i = 0; i < 1000000000; ++i) {
         if (!repeating) {
+			disasm(ip);
             if (!prefix) {
                 segmentOverride = -1;
                 rep = 0;
@@ -1199,7 +1206,7 @@ void emulator(void)
             opcode == 0xa9))
             runtimeError("REP prefix with non-string instruction");
         wordSize = ((opcode & 1) != 0);
-        bool sourceIsRM = ((opcode & 2) != 0);
+        sourceIsRM = ((opcode & 2) != 0);
         int operation = (opcode >> 3) & 7;
         bool jump;
         switch (opcode) {
@@ -1845,6 +1852,11 @@ int main(int argc, char* argv[])
     fileDescriptors[3] = STDOUT_FILENO;
     fileDescriptors[4] = STDOUT_FILENO;
     fileDescriptors[5] = -1;
+
+#ifdef __APPLE__	/* macOS stdio drops characters! */
+    static char buf[1];
+    setvbuf(stdout, buf, _IOFBF, sizeof(buf));
+#endif
 
 	emulator();
 }

@@ -23,7 +23,7 @@ testdos: 86sim-dos
 	#./86sim-dos hexdump.exe
 
 86sim-dos: 86sim.cpp
-	$(CXX) $(CXXFLAGS) -DMSDOS=1 -o 86sim-dos 86sim.cpp
+	$(CXX) $(CXXFLAGS) -DMSDOS=1 -o 86sim-dos 86sim.cpp 86disasm.cpp
 
-86sim-elks: 86sim.cpp
-	$(CXX) $(CXXFLAGS) -DELKS=1 -o 86sim-elks 86sim.cpp
+86sim-elks: 86sim.cpp 86disasm.cpp
+	$(CXX) $(CXXFLAGS) -DELKS=1 -o 86sim-elks 86sim.cpp 86disasm.cpp

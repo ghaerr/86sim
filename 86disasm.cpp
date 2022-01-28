@@ -13,7 +13,7 @@ typedef unsigned int DWord;
 extern bool wordSize;
 extern bool sourceIsRM;
 extern Byte opcode;
-extern int f_noaddr;
+extern int f_asmout;
 Word cs();
 Byte readByte(Word offset, int seg = -1);
 
@@ -33,21 +33,22 @@ Word disasm(Word start)
 {
 	startIP = start;
 	cols = 0;
-	if (!f_noaddr) printf("%04hx:%04hx  ", cs(), startIP);
+	if (!f_asmout) printf("%04hx:%04hx  ", cs(), startIP);
 	decode();
 	return startIP;
 }
 static Byte d_fetchByte()
 {
 	Byte b = readByte(startIP++, 1);
-	if (!f_noaddr) printf("%02x ", b);
-	if (!f_noaddr) cols++;
+	if (!f_asmout) printf("%02x ", b);
+	if (!f_asmout) cols++;
 	return b;
 }
 static Word d_fetchWord() { Word w = d_fetchByte(); w += d_fetchByte() << 8; return w; }
 static int d_modRMReg() { return (d_modRM >> 3) & 7; }
 static void outREG() {
-	if (wordSize) printf("%s", wordregs[(d_modRM >> 3) & 7]);
+	if (wordSize || opcode == 0xee || opcode == 0xec)	// OUT dx
+		printf("%s", wordregs[(d_modRM >> 3) & 7]);
 	else printf("%s", byteregs[(d_modRM >> 3) & 7]);
 }
 static void outSREG() {
@@ -58,14 +59,7 @@ static void outRM(Word w) {
 	static const char *basemodes[] = {
 		"(%bx,%si)", "(%bx,%di)", "(%bp,%si)", "(%bp,%di)",
         "(%si)", "(%di)", "(%bp)", "(%bx)" };
-#if 0
-	static const char *dispmodes[] = {
-		"[%%bx+%%si+%u]", "[%%bx+%%di+%u]", "[%%bp+%%si+%u]", "[%%bp+%%di+%u]",
-        "[%%si+%u]", "[%%di+%u]", "[%%bp+%u]", "[%%bx+%u]" };
-	static const char *dispsignextmodes[] = {
-		"[%%bx+%%si%s%d]", "[%%bx+%%di%s%d]", "[%%bp+%%si%s%d]", "[%%bp+%%di%s%d]",
-        "[%%si%s%d]", "[%%di%s%d]", "[%%bp%s%d]", "[%%bx%s%d]" };
-#endif
+
     switch (d_modRM & 0xc0) {
         case 0x00:
             if ((d_modRM & 0xc7) == 6)
@@ -74,14 +68,11 @@ static void outRM(Word w) {
             break;
         case 0x40:
 			b = (signed char) w;	/* signed */
-			//printf(dispsignextmodes[d_modRM & 7], b < 0? "": "+", (int)b);
-			if (b < 0)
-				printf("-0x%02x%s", -b, basemodes[d_modRM & 7]);
-			else
-				printf("0x%02x%s", b, basemodes[d_modRM & 7]);
+			if (b < 0) printf("-0x%02x", -b);
+			else printf("0x%02x", b);
+			printf("%s", basemodes[d_modRM & 7]);
 			break;
         case 0x80:
-			//printf(dispmodes[d_modRM & 7], w);
 			printf("0x%04x%s", w, basemodes[d_modRM & 7]);
 			break;
         case 0xc0:
@@ -134,8 +125,10 @@ static void outs(const char *str, int flags)
 	while (cols++ < 6)
 		printf("   ");
 	printf("%s", str);
-	//if ((flags & BW) && !wordSize) putchar('b');
-	if (flags & BW) putchar(wordSize? 'w': 'b');
+	if (flags & BW) {
+		if (f_asmout )putchar(wordSize? 'w': 'b');
+		else if (!wordSize) putchar('b');	//FIXME
+	}
 	if (flags != 0) putchar('\t');
 	if (segOver != -1) {
 		printf("%s", segregs[segOver]);
@@ -152,7 +145,12 @@ static void outs(const char *str, int flags)
 		putchar(',');
 		if (sourceIsRM) outSREG(); else outRM(w);
 	}
-	if (flags & IMM) {
+	if ((flags & (IMM|BYTE|ACC)) == (IMM|BYTE|ACC)) {	// IN, OUT imm
+		if (!sourceIsRM) printf("$0x%x,%s", w2, wordSize? "%ax": "%al");
+		else printf("%s,$0x%x", wordSize? "%ax": "%al", w2);
+		flags = 0;
+	}
+	else if (flags & IMM) {
 		printf("$0x%x", w2);
 		if (flags != (flags & IMM))
 			printf(",");
@@ -198,6 +196,7 @@ static void decode(void)
             prefix = false;
             //opcode = fetchByte();
         //}
+nextopcode:
 		opcode = d_fetchByte();
         //if (rep != 0 && (opcode < 0xa4 || opcode >= 0xb0 || opcode == 0xa8 ||
             //opcode == 0xa9))
@@ -233,9 +232,8 @@ static void decode(void)
                 break;
             case 0x26: case 0x2e: case 0x36: case 0x3e:  // segment override
                 segOver = operation - 4;
-				printf("SEGOVR %d", segOver);	//FIXME check
                 prefix = true;
-                break;
+				goto nextopcode;
             case 0x27: case 0x2f:  // DA
 				outs(opcode == 0x27? "daa": "das", 0);
                 break;
@@ -264,12 +262,10 @@ static void decode(void)
             case 0x68: case 0x69: case 0x6a: case 0x6b:
             case 0x6c: case 0x6d: case 0x6e: case 0x6f:
             case 0xc0: case 0xc1: case 0xc8: case 0xc9:  // invalid
-            case 0xcc: case 0xf0: case 0xf1: case 0xf4:  // INT 3, LOCK, HLT
-            case 0x9b: case 0xce: case 0x0f:  // WAIT, INTO, POP CS
+			case 0xf1:
             case 0xd8: case 0xd9: case 0xda: case 0xdb:
             case 0xdc: case 0xdd: case 0xde: case 0xdf:  // escape
-            case 0xe4: case 0xe5: case 0xe6: case 0xe7:
-            case 0xec: case 0xed: case 0xee: case 0xef:  // IN, OUT
+			case 0x0f:  // POP CS
 				outs("???", 0);
                 break;
             case 0x70: case 0x71: case 0x72: case 0x73:
@@ -337,6 +333,9 @@ static void decode(void)
             case 0x9a:  // CALL cp
 				outs("call", JMP|DWORD);
                 break;
+            case 0x9b:  // WAIT
+				outs("wait", 0);
+				break;
             case 0x9c:  // PUSHF
                 outs("pushf", 0);
                 break;
@@ -406,15 +405,23 @@ static void decode(void)
                 break;
             case 0xc4: case 0xc5:  // LES/LDS
 				//if (!useMemory) runtimeError("This instruction needs a memory address");
-				outs(wordSize? "lds": "les", RDMOD|RM);	//FIXME
+				wordSize = 1;
+				sourceIsRM = 1;
+				outs((opcode & 1)? "lds": "les", RDMOD|OPS2);
                 break;
             case 0xc6: case 0xc7:  // MOV rmv,iv
 				outs("mov", BW|RDMOD|IMM|RM);
                 break;
+            case 0xcc:  // INT 3
+				outs("int\t$3", 0);
+				break;
             case 0xcd:
 				wordSize = 0;
 				outs("int", IMM);
                 break;
+			case 0xce:  // INTO
+				outs("into", 0);
+				break;
             case 0xcf:  // IRET
 				outs("iret", 0);
             case 0xd0: case 0xd1: case 0xd2: case 0xd3:  // rot rmv,n
@@ -457,6 +464,16 @@ static void decode(void)
             case 0xeb:  // JMP cb
 				outs("jmp", JMP|SBYTE);
                 break;
+            case 0xe4: case 0xe5: case 0xe6: case 0xe7:  // IN, OUT ib
+				outs((opcode & 2)? "out": "in ", IMM|BYTE|ACC);
+				break;
+            case 0xec: case 0xed: case 0xee: case 0xef:  // IN, OUT dx
+				d_modRM = 0xd0;
+				outs((opcode & 2)? "out": "in ", OPS2);
+                break;
+			case 0xf0:  // LOCK
+				outs("lock", 0);
+				break;
             case 0xf2:  // REPNZ
 				prefix = true;
 				outs("repnz ", 0);
@@ -464,6 +481,9 @@ static void decode(void)
 			case 0xf3:  // REPZ
 				prefix = true;
 				outs("repz ", 0);
+				break;
+			case 0xf4:  // HLT
+				outs("hlt", 0);
 				break;
             case 0xf5:  // CMC
                 outs("cmc", 0);
@@ -474,12 +494,6 @@ static void decode(void)
                 switch (d_modRMReg()) {
                     case 0: case 1:  // TEST rmv,iv
 						outs("test", BW|IMM|RM);
-						//printf("test%c\t", wordSize? 'w': 'b');
-						//w = wordSize? d_fetchWord(): d_fetchByte();
-						//printf("$0x%x,", w);
-						//outRM();
-                        //test(data, fetch(wordSize));
-                        //o('t');
                         break;
                     case 2:  // NOT iv
 						outs("not", BW|RM);

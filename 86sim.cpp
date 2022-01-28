@@ -53,7 +53,8 @@ DWord stackLow;
 int oCycle;
 
 Word disasm(Word ip);
-bool f_noaddr;
+bool f_disasm = 1;		/* do disassembly */
+bool f_asmout = 0;		/* output gnu as compatible input */
 
 void o(char c)
 {
@@ -663,7 +664,6 @@ int dosError(int e)
 void handle_intcall(void)
 {
         int fileDescriptor;
-                data = fetchByte();
                 switch (data << 8 | ah()) {
                     case 0x1a00:
                         data = registers[8];
@@ -1134,7 +1134,6 @@ void handle_intcall(void)
 {
 				unsigned char *p;
 				unsigned int v;
-                data = fetchByte();
 				v = (data << 8) | ax();
                 switch (v) {
 				// ARGS: BX, CX, DX, DI, SI XXX
@@ -1142,11 +1141,9 @@ void handle_intcall(void)
 					printf("EXIT %d\n", bx());
 					exit(bx());
 				case 0x8004:		// write
-					//printf("WRITE %d,%x,%d\n", bx(), cx(), dx());
             		p = &ram[physicalAddress(cx(), 2, false)]; // SS
-if (f_noaddr) v = 0; else
-					v = write(bx(), p, dx());
-					//printf("WRITE %d,%d,%d = %d\n", bx(), cx(), dx(), v);
+					if (f_asmout) v = dx();
+					else v = write(bx(), p, dx());
 					setAX(v);
 					break;
 				case 0x8005:		// open
@@ -1155,8 +1152,8 @@ if (f_noaddr) v = 0; else
 					setAX(-2);
 					break;
 				case 0x8036:		// ioctl
-if (!f_noaddr)
-					printf("IOCTL %d,%c%02d,%x\n", bx(), cx()>>8, cx()&0xff, dx());
+					if (!f_asmout)
+						printf("IOCTL %d,%c%02d,%x\n", bx(), cx()>>8, cx()&0xff, dx());
 					setAX(bx() < 3? 0: -1);
 					break;
 				case 0x8000+17:		// brk
@@ -1194,7 +1191,7 @@ void emulator(void)
     bool prefix = false;
     for (int i = 0; i < 1000000000; ++i) {
         if (!repeating) {
-			disasm(ip);
+			if (f_disasm) disasm(ip);
             if (!prefix) {
                 segmentOverride = -1;
                 rep = 0;
@@ -1307,15 +1304,23 @@ void emulator(void)
             case 0x68: case 0x69: case 0x6a: case 0x6b:
             case 0x6c: case 0x6d: case 0x6e: case 0x6f:
             case 0xc0: case 0xc1: case 0xc8: case 0xc9:  // invalid
-            case 0xcc: case 0xf0: case 0xf1: case 0xf4:  // INT 3, LOCK, HLT
-            case 0x9b: case 0xce: case 0x0f:  // WAIT, INTO, POP CS
+			case 0xf1:
             case 0xd8: case 0xd9: case 0xda: case 0xdb:
             case 0xdc: case 0xdd: case 0xde: case 0xdf:  // escape
-            case 0xe4: case 0xe5: case 0xe6: case 0xe7:
-            case 0xec: case 0xed: case 0xee: case 0xef:  // IN, OUT
+			case 0x0f:  // POP CS
+            case 0x9b:  // WAIT
+			case 0xf0:  // LOCK
+			case 0xf4:  // HLT
                 fprintf(stderr, "Invalid opcode %02x", opcode);
                 runtimeError("");
                 break;
+            case 0xe4: case 0xe5: case 0xe6: case 0xe7:  // IN, OUT ib
+				(void)fetchByte();
+				//FIXME implement IN/OUT
+				break;
+            case 0xec: case 0xed: case 0xee: case 0xef:  // IN, OUT dx
+				//FIXME implement IN/OUT
+				break;
             case 0x70: case 0x71: case 0x72: case 0x73:
             case 0x74: case 0x75: case 0x76: case 0x77:
             case 0x78: case 0x79: case 0x7a: case 0x7b:
@@ -1508,10 +1513,19 @@ void emulator(void)
                 finishWriteEA(fetch(wordSize));
                 o('m');
                 break;
+            case 0xcc:  // INT 3
+                data = 3;
+				handle_intcall();
+				break;
             case 0xcd:
+                data = fetchByte();
 				handle_intcall();
                 o('$');
                 break;
+			case 0xce:  // INTO
+                data = 4;
+				handle_intcall();
+				break;
             case 0xcf:  // IRET
                 o('I');
                 doJump(pop());

@@ -36,19 +36,6 @@ int oCycle;
 bool f_disasm = 0;		/* do disassembly */
 bool f_asmout = 0;		/* output gnu as compatible input */
 
-#define o(c)
-#if 0
-void o(char c)
-{
-    while (oCycle < ios) {
-        ++oCycle;
-        printf(" ");
-    }
-    ++oCycle;
-    printf("%c", c);
-}
-#endif
-
 void error(const char* operation)
 {
     fprintf(stderr, "Error %s file %s: %s\n", operation, filename,
@@ -140,40 +127,9 @@ Word fetch(bool wordSize)
 }
 Word signExtend(Byte data) { return data + (data < 0x80 ? 0 : 0xff00); }
 int modRMReg() { return (modRM >> 3) & 7; }
-void divide()
-{
-    bool negative = false;
-    bool dividendNegative = false;
-    if (modRMReg() == 7) {
-        if ((destination & 0x80000000) != 0) {
-            destination = (unsigned)-(signed)destination;
-            negative = !negative;
-            dividendNegative = true;
-        }
-        if ((source & 0x8000) != 0) {
-            source = (unsigned)-(signed)source & 0xffff;
-            negative = !negative;
-        }
-    }
-    data = destination / source;
-    DWord product = data * source;
-    // ISO C++ 2003 does not specify a rounding mode, but the x86 always
-    // rounds towards zero.
-    if (product > destination) {
-        --data;
-        product -= source;
-    }
-    residue = destination - product;
-    if (negative)
-        data = (unsigned)-(signed)data;
-    if (dividendNegative)
-        residue = (unsigned)-(signed)residue;
-}
 void doJump(Word newIP)
 {
-#if 0
-    printf("\n");
-#endif
+    /*printf("\n");*/
     ip = newIP;
 }
 void jumpShort(Byte data, bool jump)
@@ -266,17 +222,32 @@ void stoS(Word data)
     setDI(di() + stringIncrement());
     writewb(data, address, ES);
 }
+#define o(c)
+/***void o(char c)
+{
+    while (oCycle < ios) {
+        ++oCycle;
+        printf(" ");
+    }
+    ++oCycle;
+    printf("%c", c);
+}***/
 void push(Word value)
 {
     o('{');
     setSP(sp() - 2);
 #if 0 // MSDOS FIXME - stack overflow with some DOS programs (test.exe)
-    if (((DWord)registers[10] << 4) + sp() <= stackLow)
+    if (((DWord)ss() << 4) + sp() <= stackLow)
         runtimeError("Stack overflow");
 #endif
     writeWord(value, sp(), SS);
 }
-Word pop() { Word r = readWordSeg(sp(), SS); setSP(sp() + 2); o('}'); return r; }
+Word pop() {
+	Word r = readWordSeg(sp(), SS);
+	setSP(sp() + 2);
+	o('}');
+	return r;
+}
 void setCA() { setCF(true); setAF(true); }
 void doAF() { setAF(((data ^ source ^ destination) & 0x10) != 0); }
 void doCF() { setCF((data & (!wordSize ? 0x100 : 0x10000)) != 0); }
@@ -309,6 +280,35 @@ void doALUOperation()
         case 7: sub(); o('?'); break;
         case 6: bitwise(destination ^ source); o('^'); break;
     }
+}
+void divide()
+{
+    bool negative = false;
+    bool dividendNegative = false;
+    if (modRMReg() == 7) {
+        if ((destination & 0x80000000) != 0) {
+            destination = (unsigned)-(signed)destination;
+            negative = !negative;
+            dividendNegative = true;
+        }
+        if ((source & 0x8000) != 0) {
+            source = (unsigned)-(signed)source & 0xffff;
+            negative = !negative;
+        }
+    }
+    data = destination / source;
+    DWord product = data * source;
+    // ISO C++ 2003 does not specify a rounding mode, but the x86 always
+    // rounds towards zero.
+    if (product > destination) {
+        --data;
+        product -= source;
+    }
+    residue = destination - product;
+    if (negative)
+        data = (unsigned)-(signed)data;
+    if (dividendNegative)
+        residue = (unsigned)-(signed)residue;
 }
 Word* modRMRW() { return &registers[modRMReg()]; }
 Byte* modRMRB() { return byteRegisters[modRMReg()]; }
@@ -387,6 +387,7 @@ void farLoad()
 }
 void farJump() { setCS(savedCS); doJump(savedIP); }
 void farCall() { push(cs()); push(ip); farJump(); }
+void call(Word address) { push(ip); doJump(address); }
 Word incdec(bool decrement)
 {
     source = 1;
@@ -402,7 +403,6 @@ Word incdec(bool decrement)
     setPZS();
     return data;
 }
-void call(Word address) { push(ip); doJump(address); }
 
 void emulator(void)
 {

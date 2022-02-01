@@ -157,6 +157,8 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
 
 void set_entry_registers(void)
 {
+	if (!f_asmout)
+		printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", cs(), ip, ds(), ss(), sp());
     setES(loadSegment - 0x10);
     setAX(0x0000);
     setBX(0x0000);
@@ -241,7 +243,8 @@ int getDescriptor()
 void handle_intcall(int intno)
 {
         int fileDescriptor;
-		DWord data;
+        char *p;
+        DWord data;
                 switch (intno << 8 | ah()) {
                     case 0x1a00:
                         data = es();
@@ -251,12 +254,10 @@ void handle_intcall(int intno)
                         setAL(readByte(0x0470, ES));
                         setES(data);
                         break;
-		    		case 0x2109:
-						{
-						char *p = strchr((char *)dsdx(), '$');
-						if (p) write(STDOUT_FILENO, (char *)dsdx(), p-(char *)dsdx());
-						}
-						break;
+                    case 0x2109:
+                        p = strchr((char *)dsdx(), '$');
+                        if (p) write(STDOUT_FILENO, (char *)dsdx(), p-(char *)dsdx());
+                        break;
                     case 0x2130:
                         setAX(0x1403);
                         setBX(0xff00);

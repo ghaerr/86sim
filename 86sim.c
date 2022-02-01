@@ -17,6 +17,8 @@
 typedef unsigned char Byte;
 typedef unsigned short int Word;
 typedef unsigned int DWord;
+typedef int bool;
+enum { false = 0, true };
 
 Word registers[12];
 Byte* byteRegisters[8];
@@ -133,29 +135,33 @@ DWord physicalAddress(Word offset, int seg, bool write)
     }
     return a;
 }
-Byte readByte(Word offset, int seg = -1)
+Byte readByte(Word offset, int seg)
 {
     return ram[physicalAddress(offset, seg, false)];
 }
-Word readWord(Word offset, int seg = -1)
+Word readWordSeg(Word offset, int seg)
 {
     Word r = readByte(offset, seg);
     return r + (readByte(offset + 1, seg) << 8);
 }
-Word readwb(Word offset, int seg = -1)
+Word readWord(Word offset)
 {
-    return wordSize ? readWord(offset, seg) : readByte(offset, seg);
+	return readWordSeg(offset, -1);
 }
-void writeByte(Byte value, Word offset, int seg = -1)
+Word readwb(Word offset, int seg)
+{
+    return wordSize ? readWordSeg(offset, seg) : readByte(offset, seg);
+}
+void writeByte(Byte value, Word offset, int seg)
 {
     ram[physicalAddress(offset, seg, true)] = value;
 }
-void writeWord(Word value, Word offset, int seg = -1)
+void writeWord(Word value, Word offset, int seg)
 {
     writeByte((Byte)value, offset, seg);
     writeByte((Byte)(value >> 8), offset + 1, seg);
 }
-void writewb(Word value, Word offset, int seg = -1)
+void writewb(Word value, Word offset, int seg)
 {
     if (wordSize)
         writeWord(value, offset, seg);
@@ -172,7 +178,7 @@ Word fetch(bool wordSize)
 }
 Word signExtend(Byte data) { return data + (data < 0x80 ? 0 : 0xff00); }
 int modRMReg() { return (modRM >> 3) & 7; }
-void div()
+void divide()
 {
     bool negative = false;
     bool dividendNegative = false;
@@ -306,7 +312,7 @@ Word lodS()
     address = si();
     setSI(si() + stringIncrement());
     segment = 3;
-    return readwb(address);
+    return readwb(address, -1);
 }
 void doRep(bool compare)
 {
@@ -339,7 +345,7 @@ void push(Word value)
 #endif
     writeWord(value, sp(), 2);
 }
-Word pop() { Word r = readWord(sp(), 2); setSP(sp() + 2); o('}'); return r; }
+Word pop() { Word r = readWordSeg(sp(), 2); setSP(sp() + 2); o('}'); return r; }
 void setCA() { setCF(true); setAF(true); }
 void doAF() { setAF(((data ^ source ^ destination) & 0x10) != 0); }
 void doCF() { setCF((data & (!wordSize ? 0x100 : 0x10000)) != 0); }
@@ -426,7 +432,7 @@ Word readEA2()
             return registers[address];
         return *byteRegisters[address];
     }
-    return readwb(address);
+    return readwb(address, -1);
 }
 Word readEA() { address = ea(); return readEA2(); }
 void finishWriteEA(Word data)
@@ -438,7 +444,7 @@ void finishWriteEA(Word data)
             *byteRegisters[address] = (Byte)data;
     }
     else
-        writewb(data, address);
+        writewb(data, address, -1);
 }
 void writeEA(Word data) { ea(); finishWriteEA(data); }
 void farLoad()
@@ -473,41 +479,41 @@ write_environ(int argc, char **argv, char **envp)
 {
     int envSegment = loadSegment - 0x1c;
     registers[8] = envSegment;
-    writeByte(0, 0);  // No environment for now
-    writeWord(1, 1);
+    writeByte(0, 0, 0);  // No environment for now
+    writeWord(1, 1, 0);
     int i;
     for (i = 0; filename[i] != 0; ++i)
-        writeByte(filename[i], i + 3);
+        writeByte(filename[i], i + 3, 0);
     if (i + 4 >= 0xc0) {
         fprintf(stderr, "Program name too long.\n");
         exit(1);
     }
-    writeWord(0, i + 3);
+    writeWord(0, i + 3, 0);
     registers[8] = loadSegment - 0x10;
-    writeWord(envSegment, 0x2c);
+    writeWord(envSegment, 0x2c, 0);
     i = 0x81;
     for (int a = 2; a < argc; ++a) {
         if (a > 2) {
-            writeByte(' ', i);
+            writeByte(' ', i, 0);
             ++i;
         }
         char* arg = argv[a];
         bool quote = strchr(arg, ' ') != 0;
         if (quote) {
-            writeByte('\"', i);
+            writeByte('\"', i, 0);
             ++i;
         }
         for (; *arg != 0; ++arg) {
             int c = *arg;
             if (c == '\"') {
-                writeByte('\\', i);
+                writeByte('\\', i, 0);
                 ++i;
             }
-            writeByte(c, i);
+            writeByte(c, i, 0);
             ++i;
         }
         if (quote) {
-            writeByte('\"', i);
+            writeByte('\"', i, 0);
             ++i;
         }
     }
@@ -515,9 +521,9 @@ write_environ(int argc, char **argv, char **envp)
         fprintf(stderr, "Arguments too long.\n");
         exit(1);
     }
-    writeWord(0x9fff, 2);
-    writeByte(i - 0x81, 0x80);
-    writeByte(13, i);
+    writeWord(0x9fff, 2, 0);
+    writeByte(i - 0x81, 0x80, 0);
+    writeByte(13, i, 0);
 }
 
 void
@@ -553,7 +559,7 @@ load_executable(FILE *fp, int length, int argc, char **argv)
         for (int i = 0; i < relocationCount; ++i) {
             int offset = readWord(relocationData + 0x100);
             registers[9] = readWord(relocationData + 0x102) + imageSegment;
-            writeWord(readWord(offset, 1) + imageSegment, offset, 1);
+            writeWord(readWordSeg(offset, 1) + imageSegment, offset, 1);
             relocationData += 4;
         }
         //loadSegment = imageSegment;  // Prevent further access to header
@@ -615,22 +621,21 @@ load_bios_irqs(void)
     // and parts of the BIOS ROM area with stuff, for the benefit of the far
     // pointer tests.
     registers[8] = 0x0000;
-    writeWord(0x0000, 0x0080);
-    writeWord(0xFFFF, 0x0082);
-    writeWord(0x0058, 0x046C);
-    writeWord(0x000C, 0x046E);
-    writeByte(0x00, 0x0470);
+    writeWord(0x0000, 0x0080, 0);
+    writeWord(0xFFFF, 0x0082, 0);
+    writeWord(0x0058, 0x046C, 0);
+    writeWord(0x000C, 0x046E, 0);
+    writeByte(0x00, 0x0470, 0);
     registers[8] = 0xF000;
     for (int i = 0; i < 0x100; i += 2)
-        writeWord(0xF4F4, 0xFF00 + (unsigned)i);
+        writeWord(0xF4F4, 0xFF00 + (unsigned)i, 0);
     // We need some variety in the ROM BIOS content...
-    writeByte(0xEA, 0xFFF0);
-    writeWord(0xFFF0, 0xFFF1);
-    writeWord(0xF000, 0xFFF3);
+    writeByte(0xEA, 0xFFF0, 0);
+    writeWord(0xFFF0, 0xFFF1, 0);
+    writeWord(0xF000, 0xFFF3, 0);
 }
 
-char* initString(Word offset, int seg, bool write, int buffer,
-    int bytes = 0x10000)
+char* initString(Word offset, int seg, bool write, int buffer, int bytes)
 {
     for (int i = 0; i < bytes; ++i) {
         char p;
@@ -649,9 +654,13 @@ char* initString(Word offset, int seg, bool write, int buffer,
         pathBuffers[buffer][0xffff] = 0;
     return pathBuffers[buffer];
 }
-char* dsdx(bool write = false, int bytes = 0x10000)
+char* dsdxparms(bool write, int bytes)
 {
     return initString(dx(), 3, write, 0, bytes);
+}
+char *dsdx()
+{
+	return dsdxparms(false, 0x10000);
 }
 int dosError(int e)
 {
@@ -668,8 +677,8 @@ void handle_intcall(void)
                     case 0x1a00:
                         data = registers[8];
                         registers[8] = 0;
-                        setDX(readWord(0x046c, 0));
-                        setCX(readWord(0x046e, 0));
+                        setDX(readWordSeg(0x046c, 0));
+                        setCX(readWordSeg(0x046e, 0));
                         setAL(readByte(0x0470, 0));
                         registers[8] = data;
                         break;
@@ -758,7 +767,7 @@ void handle_intcall(void)
                             break;
                         }
                         data = read(fileDescriptor, pathBuffers[0], cx());
-                        dsdx(true, cx());
+                        dsdxparms(true, cx());
                         if (data == (DWord)-1) {
                             setCF(true);
                             setAX(dosError(errno));
@@ -775,7 +784,7 @@ void handle_intcall(void)
                             setAX(6);  // Invalid handle
                             break;
                         }
-                        data = write(fileDescriptor, dsdx(false, cx()), cx());
+                        data = write(fileDescriptor, dsdxparms(false, cx()), cx());
                         if (data == (DWord)-1) {
                             setCF(true);
                             setAX(dosError(errno));
@@ -842,7 +851,7 @@ void handle_intcall(void)
                     case 0x2147:
                         if (getcwd(pathBuffers[0], 64) != 0) {
                             setCF(false);
-                            initString(si(), 3, true, 0);
+                            initString(si(), 3, true, 0, 0x10000);
                         }
                         else {
                             setCF(true);
@@ -873,7 +882,7 @@ void handle_intcall(void)
                         exit(0);
                         break;
                     case 0x2156:
-                        if (rename(dsdx(), initString(di(), 0, false, 1)) == 0)
+                        if (rename(dsdx(), initString(di(), 0, false, 1, 0x10000)) == 0)
                             setCF(false);
                         else {
                             setCF(true);
@@ -1431,13 +1440,13 @@ void emulator(void)
                 break;
             case 0xa0: case 0xa1:  // MOV accum,xv
                 segment = 3;
-                data = readwb(fetchWord());
+                data = readwb(fetchWord(), 3);
                 setAccum();
                 o('m');
                 break;
             case 0xa2: case 0xa3:  // MOV xv,accum
                 segment = 3;
-                writewb(getAccum(), fetchWord());
+                writewb(getAccum(), fetchWord(), 3);
                 o('m');
                 break;
             case 0xa4: case 0xa5:  // MOVSv
@@ -1619,7 +1628,7 @@ void emulator(void)
                 o('S');
                 break;
             case 0xd7:  // XLATB
-                setAL(readByte(bx() + al()));
+                setAL(readByte(bx() + al(), -1));
                 o('@');
                 break;
             case 0xe0: case 0xe1: case 0xe2:  // LOOPc cb
@@ -1730,7 +1739,7 @@ void emulator(void)
                         if (!wordSize) {
                             destination = ax();
                             if (modRMReg() == 6) {
-                                div();
+                                divide();
                                 if (data > 0xff)
                                     divideOverflow();
                             }
@@ -1739,7 +1748,7 @@ void emulator(void)
                                 if ((destination & 0x8000) != 0)
                                     destination |= 0xffff0000;
                                 source = signExtend(source);
-                                div();
+                                divide();
                                 if (data > 0x7f && data < 0xffffff80)
                                     divideOverflow();
                             }
@@ -1748,7 +1757,7 @@ void emulator(void)
                         }
                         else {
                             destination = (dx() << 16) + ax();
-                            div();
+                            divide();
                             if (modRMReg() == 6) {
                                 if (data > 0xffff)
                                     divideOverflow();

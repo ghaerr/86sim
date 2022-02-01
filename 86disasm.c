@@ -9,13 +9,15 @@
 typedef unsigned char Byte;
 typedef unsigned short int Word;
 typedef unsigned int DWord;
+typedef int bool;
+enum { false = 0, true };
 
 extern bool wordSize;
 extern bool sourceIsRM;
 extern Byte opcode;
 extern int f_asmout;
 Word cs();
-Byte readByte(Word offset, int seg = -1);
+Byte readByte(Word offset, int seg);
 
 static Word startIP;
 static Byte d_modRM;
@@ -272,11 +274,12 @@ nextopcode:
             case 0x74: case 0x75: case 0x76: case 0x77:
             case 0x78: case 0x79: case 0x7a: case 0x7b:
             case 0x7c: case 0x7d: case 0x7e: case 0x7f:  // Jcond cb
+				{
 				static const char *jumpnames[] = {
 					"jo ", "jno", "jb ", "jnb", "jz ", "jnz", "jbe", "ja ",
-					"js ", "jns", "jpe", "jpo","jl ", "jge", "jle", "jg "
-				};
+					"js ", "jns", "jpe", "jpo","jl ", "jge", "jle", "jg " };
 				outs(jumpnames[opcode & 0x0f], JMP|SBYTE);
+				}
                 break;
             case 0x80: case 0x81: case 0x82: case 0x83:  // alu rmv,iv
 				d_modRM = d_fetchByte();
@@ -425,14 +428,15 @@ nextopcode:
             case 0xcf:  // IRET
 				outs("iret", 0);
             case 0xd0: case 0xd1: case 0xd2: case 0xd3:  // rot rmv,n
+				{
 				static const char *rotates[] = {
-				"rol", "ror", "rcl", "rcr", "shl", "shr", "SHL", "sar"
-				};
+					"rol", "ror", "rcl", "rcr", "shl", "shr", "SHL", "sar" };
 				d_modRM = d_fetchByte();
 				flags = BW|RM;
 				if (opcode & 2) flags |= SHIFTBYCL;
 				else flags |= SHIFTBY1;
 				outs(rotates[d_modRMReg()], flags);
+				}
                 break;
             case 0xd4:  // AAM
 				outs("aam", 0);

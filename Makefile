@@ -1,7 +1,7 @@
 #
 #
 ELKS=../elks-gh
-CXXFLAGS=-Wall -O3
+CFLAGS=-Wall -O3
 
 all: 86sim-dos 86sim-elks test testdos
 
@@ -22,8 +22,8 @@ testdos: 86sim-dos
 	./86sim-dos test.exe
 	#./86sim-dos hexdump.exe
 
-86sim-dos: 86sim.cpp
-	$(CXX) $(CXXFLAGS) -DMSDOS=1 -o 86sim-dos 86sim.cpp 86disasm.cpp
+86sim-dos: 86sim.c
+	$(CC) $(CFLAGS) -DMSDOS=1 -o 86sim-dos 86sim.c 86disasm.c
 
-86sim-elks: 86sim.cpp 86disasm.cpp
-	$(CXX) $(CXXFLAGS) -DELKS=1 -o 86sim-elks 86sim.cpp 86disasm.cpp
+86sim-elks: 86sim.c 86disasm.c
+	$(CC) $(CFLAGS) -DELKS=1 -o 86sim-elks 86sim.c 86disasm.c

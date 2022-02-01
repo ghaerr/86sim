@@ -33,7 +33,7 @@ int aluOperation;
 bool running = false;
 int oCycle;
 
-bool f_disasm = 1;		/* do disassembly */
+bool f_disasm = 0;		/* do disassembly */
 bool f_asmout = 0;		/* output gnu as compatible input */
 
 #define o(c)
@@ -130,7 +130,7 @@ void writewb(Word value, Word offset, int seg)
     else
         writeByte((Byte)value, offset, seg);
 }
-Byte fetchByte() { Byte b = readByte(ip, 1); ++ip; return b; }
+Byte fetchByte() { Byte b = readByte(ip, CS); ++ip; return b; }
 Word fetchWord() { Word w = fetchByte(); w += fetchByte() << 8; return w; }
 Word fetch(bool wordSize)
 {
@@ -242,7 +242,7 @@ Word lodS()
 {
     address = si();
     setSI(si() + stringIncrement());
-    segment = 3;
+    segment = DS;
     return readwb(address, -1);
 }
 void doRep(bool compare)
@@ -258,13 +258,13 @@ Word lodDIS()
 {
     address = di();
     setDI(di() + stringIncrement());
-    return readwb(address, 0);
+    return readwb(address, ES);
 }
 void stoS(Word data)
 {
     address = di();
     setDI(di() + stringIncrement());
-    writewb(data, address, 0);
+    writewb(data, address, ES);
 }
 void push(Word value)
 {
@@ -274,9 +274,9 @@ void push(Word value)
     if (((DWord)registers[10] << 4) + sp() <= stackLow)
         runtimeError("Stack overflow");
 #endif
-    writeWord(value, sp(), 2);
+    writeWord(value, sp(), SS);
 }
-Word pop() { Word r = readWordSeg(sp(), 2); setSP(sp() + 2); o('}'); return r; }
+Word pop() { Word r = readWordSeg(sp(), SS); setSP(sp() + 2); o('}'); return r; }
 void setCA() { setCF(true); setAF(true); }
 void doAF() { setAF(((data ^ source ^ destination) & 0x10) != 0); }
 void doCF() { setCF((data & (!wordSize ? 0x100 : 0x10000)) != 0); }
@@ -332,14 +332,14 @@ Word ea()
     modRM = fetchByte();
     useMemory = true;
     switch (modRM & 7) {
-        case 0: segment = 3; address = bx() + si(); break;
-        case 1: segment = 3; address = bx() + di(); break;
-        case 2: segment = 2; address = bp() + si(); break;
-        case 3: segment = 2; address = bp() + di(); break;
-        case 4: segment = 3; address =        si(); break;
-        case 5: segment = 3; address =        di(); break;
-        case 6: segment = 2; address = bp();        break;
-        case 7: segment = 3; address = bx();        break;
+        case 0: segment = DS; address = bx() + si(); break;
+        case 1: segment = DS; address = bx() + di(); break;
+        case 2: segment = SS; address = bp() + si(); break;
+        case 3: segment = SS; address = bp() + di(); break;
+        case 4: segment = DS; address =        si(); break;
+        case 5: segment = DS; address =        di(); break;
+        case 6: segment = SS; address = bp();        break;
+        case 7: segment = DS; address = bx();        break;
     }
     switch (modRM & 0xc0) {
         case 0x00:
@@ -416,7 +416,7 @@ void emulator(void)
     bool prefix = false;
     for (int i = 0; i < 1000000000; ++i) {
         if (!repeating) {
-			if (f_disasm) disasm(ip);
+			if (f_disasm) disasm(cs(), ip);
             if (!prefix) {
                 segmentOverride = -1;
                 rep = 0;
@@ -655,14 +655,14 @@ void emulator(void)
                 o('L');
                 break;
             case 0xa0: case 0xa1:  // MOV accum,xv
-                segment = 3;
-                data = readwb(fetchWord(), 3);
+                segment = DS;
+                data = readwb(fetchWord(), -1);
                 setAccum();
                 o('m');
                 break;
             case 0xa2: case 0xa3:  // MOV xv,accum
-                segment = 3;
-                writewb(getAccum(), fetchWord(), 3);
+                segment = DS;
+                writewb(getAccum(), fetchWord(), -1);
                 o('m');
                 break;
             case 0xa4: case 0xa5:  // MOVSv

@@ -136,30 +136,30 @@ static void write_environ(int argc, char **argv, char **envp)
 	/* baseoff = stk_ptr + stack_bytes; */
 	/* baseoff = stk_ptr; */
 	baseoff = 0;
-	writeWord(argv_count, pip, 2);	pip += 2;
+	writeWord(argv_count, pip, SS);	pip += 2;
 	for(p=argv; p && *p; p++)
 	{
 	   int n;
 
-	   writeWord(pcp-baseoff, pip, 2);	pip += 2;
+	   writeWord(pcp-baseoff, pip, SS);	pip += 2;
 	   n = strlen(*p)+1;
 	   for (int i = 0; i<n; i++)
-		writeByte((*p)[i], pcp+i, 2);
+		writeByte((*p)[i], pcp+i, SS);
 	   pcp += n;
 	}
-	writeWord(0, pip, 2);	pip += 2;
+	writeWord(0, pip, SS);	pip += 2;
 
 	for(p=envp; p && *p; p++)
 	{
 	   int n;
 
-	   writeWord(pcp-baseoff, pip, 2);	pip += 2;
+	   writeWord(pcp-baseoff, pip, SS);	pip += 2;
 	   n = strlen(*p)+1;
 	   for (int i = 0; i<n; i++)
-		writeByte((*p)[i], pcp+i, 2);
+		writeByte((*p)[i], pcp+i, SS);
 	   pcp += n;
 	}
-	writeWord(0, pip, 2);	pip += 2;
+	writeWord(0, pip, SS);	pip += 2;
 }
 
 void load_executable(FILE *fp, int length, int argc, char **argv)
@@ -169,7 +169,7 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
 	flags = 0x3202;
 	// FIXME check hlen < 0x20, unset hdr access after, check tseg & 15
 	for (int i = 0; i < 0x20; ++i) {
-		registers[8] = loadSegment + (i >> 4); // ES
+		setES(loadSegment + (i >> 4));
 		physicalAddress(i & 15, 0, true);
 	}
 	// 8 = ES, 9 = CS, 10 = SS, 11 = DS
@@ -187,12 +187,12 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
 		printf("hlen %x version %x tseg %x dseg %x bseg %x entry %x chmem %x minstack %x\n",
 		hlen, version, tseg, dseg, bseg, entry, chmem, minstack);
 	for (int i = hlen; i < length+bseg+8192; ++i) {
-		registers[8] = loadSegment + (i >> 4);
+		setES(loadSegment + (i >> 4));
 		physicalAddress(i & 15, 0, true); // ES
 	}
-	registers[9] = loadSegment + (hlen>>4); // CS
-	registers[10] = loadSegment + (hlen>>4) + ((tseg + 15) >> 4); // SS
-	registers[11] = registers[10]; // DS = SS
+	setCS(loadSegment + (hlen>>4));
+	setSS(loadSegment + (hlen>>4) + ((tseg + 15) >> 4));
+	setDS(ss());				// DS = SS
 	sysbrk = dseg + bseg + 4096;
 	int stack = sysbrk + 4096;
 	//int stack = 0xfffe;
@@ -205,20 +205,19 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
 	ip = entry;
 
 	for (int i=dseg; i<dseg+bseg; i++)	// clear BSS
-		writeByte(0, i, 3);		// DS:i
+		writeByte(0, i, DS);
 }
 
 void set_entry_registers(void)
 {
 	if (!f_asmout)
-		printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", registers[9], ip, registers[11],
-			registers[10], sp());
-	registers[8] = registers[11]; // ES = DS
+		printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", cs(), ip, ds(), ss(), sp());
+	setES(ds());		// ES = DS
 	setAX(0x0000);
+	setBX(0x0000);
 	setCX(0x00FF);	// MUST BE 0x00FF as for big endian test below!!!!
 	setDX(0x0000);
-	registers[3] = 0x0000;  // BX
-	registers[5] = 0x0000;  // BP
+	setBP(0x0000);
 	setSI(0x0000);
 	setDI(0x0000);
 }
@@ -262,7 +261,7 @@ void handle_intcall(int intno)
 		printf("SBRK %d old %x new %x SP %x\n", bx(), sysbrk, sysbrk+bx(), sp());
 		v = sysbrk;
 		sysbrk += bx();
-		writeWord(v, cx(), 2); // SS
+		writeWord(v, cx(), SS);
 		setAX(0);
 		break;
 	default:

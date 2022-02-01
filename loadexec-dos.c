@@ -15,42 +15,43 @@ static int fileDescriptorCount = 6;
 static void write_environ(int argc, char **argv, char **envp)
 {
     int envSegment = loadSegment - 0x1c;
-    registers[8] = envSegment;
-    writeByte(0, 0, 0);  // No environment for now
-    writeWord(1, 1, 0);
+
+    setES(envSegment);
+    writeByte(0, 0, ES);  // No environment for now
+    writeWord(1, 1, ES);
     int i;
     for (i = 0; filename[i] != 0; ++i)
-        writeByte(filename[i], i + 3, 0);
+        writeByte(filename[i], i + 3, ES);
     if (i + 4 >= 0xc0) {
         fprintf(stderr, "Program name too long.\n");
         exit(1);
     }
-    writeWord(0, i + 3, 0);
-    registers[8] = loadSegment - 0x10;
-    writeWord(envSegment, 0x2c, 0);
+    writeWord(0, i + 3, ES);
+    setES(loadSegment - 0x10);
+    writeWord(envSegment, 0x2c, ES);
     i = 0x81;
     for (int a = 2; a < argc; ++a) {
         if (a > 2) {
-            writeByte(' ', i, 0);
+            writeByte(' ', i, ES);
             ++i;
         }
         char* arg = argv[a];
         bool quote = strchr(arg, ' ') != 0;
         if (quote) {
-            writeByte('\"', i, 0);
+            writeByte('\"', i, ES);
             ++i;
         }
         for (; *arg != 0; ++arg) {
             int c = *arg;
             if (c == '\"') {
-                writeByte('\\', i, 0);
+                writeByte('\\', i, ES);
                 ++i;
             }
-            writeByte(c, i, 0);
+            writeByte(c, i, ES);
             ++i;
         }
         if (quote) {
-            writeByte('\"', i, 0);
+            writeByte('\"', i, ES);
             ++i;
         }
     }
@@ -58,9 +59,9 @@ static void write_environ(int argc, char **argv, char **envp)
         fprintf(stderr, "Arguments too long.\n");
         exit(1);
     }
-    writeWord(0x9fff, 2, 0);
-    writeByte(i - 0x81, 0x80, 0);
-    writeByte(13, i, 0);
+    writeWord(0x9fff, 2, ES);
+    writeByte(i - 0x81, 0x80, ES);
+    writeByte(13, i, ES);
 }
 
 static void init()
@@ -86,7 +87,7 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
 	flags = 2;
 	write_environ(argc, argv, 0);
     for (int i = 0; i < length; ++i) {
-        registers[8] = loadSegment + (i >> 4);
+        setES(loadSegment + (i >> 4));
         physicalAddress(i & 15, 0, true);
     }
     for (int i = 0; i < 4; ++i)
@@ -97,8 +98,8 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
             exit(1);
         }
         Word bytesInLastBlock = readWord(0x102);
-        int exeLength = ((readWord(0x104) - (bytesInLastBlock == 0 ? 0 : 1))
-            << 9) + bytesInLastBlock;
+        int exeLength = ((readWord(0x104) - (bytesInLastBlock == 0 ? 0 : 1)) << 9)
+			+ bytesInLastBlock;
         int headerParagraphs = readWord(0x108);
         int headerLength = headerParagraphs << 4;
         if (exeLength > length || headerLength > length ||
@@ -111,20 +112,19 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
         int relocationData = readWord(0x118);
         for (int i = 0; i < relocationCount; ++i) {
             int offset = readWord(relocationData + 0x100);
-            registers[9] = readWord(relocationData + 0x102) + imageSegment;
-            writeWord(readWordSeg(offset, 1) + imageSegment, offset, 1);
+            setCS(readWord(relocationData + 0x102) + imageSegment);
+            writeWord(readWordSeg(offset, CS) + imageSegment, offset, CS);
             relocationData += 4;
         }
         //loadSegment = imageSegment;  // Prevent further access to header
-        Word ss = readWord(0x10e) + imageSegment;  // SS
-        registers[10] = ss;
+        Word ss = readWord(0x10e) + imageSegment;
+        setSS(ss);
         setSP(readWord(0x110));
-        stackLow =
-            (((exeLength - headerLength + 15) >> 4) + imageSegment) << 4;
+        stackLow = (((exeLength - headerLength + 15) >> 4) + imageSegment) << 4;
         if (stackLow < ((DWord)ss << 4) + 0x10)
             stackLow = ((DWord)ss << 4) + 0x10;
         ip = readWord(0x114);
-        registers[9] = readWord(0x116) + imageSegment;  // CS
+        setCS(readWord(0x116) + imageSegment);
     }
     else {
         if (length > 0xff00) {
@@ -138,18 +138,18 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
     // any locations that could possibly be stack.
     if (sp()) {
         Word d = 0;
-        if (((DWord)registers[10] << 4) < stackLow)
-            d = stackLow - ((DWord)registers[10] << 4);
+        if (((DWord)ss() << 4) < stackLow)
+            d = stackLow - ((DWord)ss() << 4);
         while (d < sp()) {
-            writeByte(0, d, 2);
+            writeByte(0, d, SS);
             ++d;
         }
     } else {
         Word d = 0;
-        if (((DWord)registers[10] << 4) < stackLow)
-            d = stackLow - ((DWord)registers[10] << 4);
+        if (((DWord)ss() << 4) < stackLow)
+            d = stackLow - ((DWord)ss() << 4);
         do {
-            writeByte(0, d, 2);
+            writeByte(0, d, SS);
             ++d;
         } while (d != 0);
     }
@@ -157,12 +157,12 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
 
 void set_entry_registers(void)
 {
-    registers[8] = loadSegment - 0x10;
+    setES(loadSegment - 0x10);
     setAX(0x0000);
+    setBX(0x0000);
     setCX(0x00FF);	// MUST BE 0x00FF as for big endian test below!!!!
     setDX(segment);
-    registers[3] = 0x0000;  // BX
-    registers[5] = 0x091C;  // BP
+    setBP(0x091C);
     setSI(0x0100);
     setDI(0xFFFE);
 }
@@ -172,19 +172,19 @@ void load_bios_irqs(void)
     // Fill up parts of the interrupt vector table, the BIOS clock tick count,
     // and parts of the BIOS ROM area with stuff, for the benefit of the far
     // pointer tests.
-    registers[8] = 0x0000;
-    writeWord(0x0000, 0x0080, 0);
-    writeWord(0xFFFF, 0x0082, 0);
-    writeWord(0x0058, 0x046C, 0);
-    writeWord(0x000C, 0x046E, 0);
-    writeByte(0x00, 0x0470, 0);
-    registers[8] = 0xF000;
+    setES(0x0000);
+    writeWord(0x0000, 0x0080, ES);
+    writeWord(0xFFFF, 0x0082, ES);
+    writeWord(0x0058, 0x046C, ES);
+    writeWord(0x000C, 0x046E, ES);
+    writeByte(0x00, 0x0470, ES);
+    setES(0xF000);
     for (int i = 0; i < 0x100; i += 2)
-        writeWord(0xF4F4, 0xFF00 + (unsigned)i, 0);
+        writeWord(0xF4F4, 0xFF00 + (unsigned)i, ES);
     // We need some variety in the ROM BIOS content...
-    writeByte(0xEA, 0xFFF0, 0);
-    writeWord(0xFFF0, 0xFFF1, 0);
-    writeWord(0xF000, 0xFFF3, 0);
+    writeByte(0xEA, 0xFFF0, ES);
+    writeWord(0xFFF0, 0xFFF1, ES);
+    writeWord(0xF000, 0xFFF3, ES);
 }
 
 char* initString(Word offset, int seg, bool write, int buffer, int bytes)
@@ -244,12 +244,12 @@ void handle_intcall(int intno)
 		DWord data;
                 switch (intno << 8 | ah()) {
                     case 0x1a00:
-                        data = registers[8];
-                        registers[8] = 0;
-                        setDX(readWordSeg(0x046c, 0));
-                        setCX(readWordSeg(0x046e, 0));
-                        setAL(readByte(0x0470, 0));
-                        registers[8] = data;
+                        data = es();
+                        setES(0);
+                        setDX(readWordSeg(0x046c, ES));
+                        setCX(readWordSeg(0x046e, ES));
+                        setAL(readByte(0x0470, ES));
+                        setES(data);
                         break;
 		    		case 0x2109:
 						{

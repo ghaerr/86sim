@@ -18,15 +18,23 @@ bool sourceIsRM;
 Byte opcode;
 int f_asmout;
 
-/* user-defined external functions */
-Word registers[12];
-static inline Word cs() { return registers[9]; }	/* displayed segment */
-Byte readByte(Word offset, int seg);	/* read next instruction byte */
-
 static Word startIP;
+static Word startCS;
 static Byte d_modRM;
 static int segOver;
 static int cols;
+
+/* user-defined external functions */
+extern Byte readByte(Word offset, int seg);	/* read next instruction byte */
+static Byte d_fetchByte()
+{
+	Byte b = readByte(startIP++, 1);
+	if (!f_asmout) {
+		printf("%02x ", b);
+		cols++;
+	}
+	return b;
+}
 
 static const char *wordregs[] = {
 	"%ax", "%cx", "%dx", "%bx", "%sp", "%bp", "%si", "%di"};
@@ -35,20 +43,14 @@ static const char *byteregs[] = {
 static const char *segregs[] = { "%es", "%cs", "%ss", "%ds"};
 
 static void decode();
-Word disasm(Word start)
+Word disasm(Word cs, Word ip)
 {
-	startIP = start;
+	startCS = cs;
+	startIP = ip;
 	cols = 0;
-	if (!f_asmout) printf("%04hx:%04hx  ", cs(), startIP);
+	if (!f_asmout) printf("%04hx:%04hx  ", cs, ip);
 	decode();
 	return startIP;
-}
-static Byte d_fetchByte()
-{
-	Byte b = readByte(startIP++, 1);
-	if (!f_asmout) printf("%02x ", b);
-	if (!f_asmout) cols++;
-	return b;
 }
 static Word d_fetchWord() { Word w = d_fetchByte(); w += d_fetchByte() << 8; return w; }
 static int d_modRMReg() { return (d_modRM >> 3) & 7; }

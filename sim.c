@@ -11,27 +11,11 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/stat.h>
-#include <fcntl.h>
+#include "sim.h"
 
-typedef unsigned char Byte;
-typedef unsigned short int Word;
-typedef unsigned int DWord;
-typedef int bool;
-enum { false = 0, true };
-
-Word registers[12];
-Byte* byteRegisters[8];
-Word ip;
-Byte* ram;
 Byte* initialized;
-char* pathBuffers[2];
-int* fileDescriptors;
-int fileDescriptorCount = 6;
-Word loadSegment;
 bool useMemory;
 Word address;
-Word flags;
 Byte modRM;
 bool wordSize;
 bool sourceIsRM;
@@ -45,33 +29,26 @@ Word savedIP;
 Word savedCS;
 int segmentOverride = -1;
 Word residue;
-Byte opcode;
 int aluOperation;
-const char* filename;
-int length;
-int ios;
 bool running = false;
-DWord stackLow;
 int oCycle;
 
-Word disasm(Word ip);
 bool f_disasm = 1;		/* do disassembly */
 bool f_asmout = 0;		/* output gnu as compatible input */
 
+#define o(c)
+#if 0
 void o(char c)
 {
-#if 0
     while (oCycle < ios) {
         ++oCycle;
         printf(" ");
     }
     ++oCycle;
     printf("%c", c);
-#endif
 }
+#endif
 
-Word es() { return registers[8]; }
-Word cs() { return registers[9]; }
 void error(const char* operation)
 {
     fprintf(stderr, "Error %s file %s: %s\n", operation, filename,
@@ -91,21 +68,6 @@ void* alloc(size_t bytes)
         exit(1);
     }
     return r;
-}
-int getDescriptor()
-{
-    for (int i = 0; i < fileDescriptorCount; ++i)
-        if (fileDescriptors[i] == -1)
-            return i;
-    int newCount = fileDescriptorCount << 1;
-    int* newDescriptors = (int*)alloc(newCount*sizeof(int));
-    for (int i = 0; i < fileDescriptorCount; ++i)
-        newDescriptors[i] = fileDescriptors[i];
-    free(fileDescriptors);
-    int oldCount = fileDescriptorCount;
-    fileDescriptorCount = newCount;
-    fileDescriptors = newDescriptors;
-    return oldCount;
 }
 void divideOverflow() { runtimeError("Divide overflow"); }
 DWord physicalAddress(Word offset, int seg, bool write)
@@ -219,7 +181,6 @@ void jumpShort(Byte data, bool jump)
     if (jump)
         doJump(ip + signExtend(data));
 }
-void setCF(bool cf) { flags = (flags & ~1) | (cf ? 1 : 0); }
 void setAF(bool af) { flags = (flags & ~0x10) | (af ? 0x10 : 0); }
 void clearCA() { setCF(false); setAF(false); }
 void setOF(bool of) { flags = (flags & ~0x800) | (of ? 0x800 : 0); }
@@ -272,36 +233,6 @@ void setIF(bool intf) { flags = (flags & ~0x200) | (intf ? 0x200 : 0); }
 void setDF(bool df) { flags = (flags & ~0x400) | (df ? 0x400 : 0); }
 bool df() { return (flags & 0x400) != 0; }
 bool of() { return (flags & 0x800) != 0; }
-Word rw() { return registers[opcode & 7]; }
-Word ax() { return registers[0]; }
-Word cx() { return registers[1]; }
-Word dx() { return registers[2]; }
-Word bx() { return registers[3]; }
-Word sp() { return registers[4]; }
-Word bp() { return registers[5]; }
-Word si() { return registers[6]; }
-Word di() { return registers[7]; }
-Byte al() { return *byteRegisters[0]; }
-Byte cl() { return *byteRegisters[1]; }
-Byte dl() { return *byteRegisters[2]; }
-Byte bl() { return *byteRegisters[3]; }
-Byte ah() { return *byteRegisters[4]; }
-Byte ch() { return *byteRegisters[5]; }
-Byte dh() { return *byteRegisters[6]; }
-Byte bh() { return *byteRegisters[7]; }
-void setRW(Word value) { registers[opcode & 7] = value; }
-void setAX(Word value) { registers[0] = value; }
-void setCX(Word value) { registers[1] = value; }
-void setDX(Word value) { registers[2] = value; }
-void setBX(Word value) { registers[3] = value; }
-void setSP(Word value) { registers[4] = value; }
-void setSI(Word value) { registers[6] = value; }
-void setDI(Word value) { registers[7] = value; }
-void setAL(Byte value) { *byteRegisters[0] = value; }
-void setCL(Byte value) { *byteRegisters[1] = value; }
-void setAH(Byte value) { *byteRegisters[4] = value; }
-void setRB(Byte value) { *byteRegisters[opcode & 7] = value; }
-void setCS(Word value) { registers[9] = value; }
 int stringIncrement()
 {
     int r = (wordSize ? 2 : 1);
@@ -472,721 +403,6 @@ Word incdec(bool decrement)
     return data;
 }
 void call(Word address) { push(ip); doJump(address); }
-
-#if MSDOS
-void
-write_environ(int argc, char **argv, char **envp)
-{
-    int envSegment = loadSegment - 0x1c;
-    registers[8] = envSegment;
-    writeByte(0, 0, 0);  // No environment for now
-    writeWord(1, 1, 0);
-    int i;
-    for (i = 0; filename[i] != 0; ++i)
-        writeByte(filename[i], i + 3, 0);
-    if (i + 4 >= 0xc0) {
-        fprintf(stderr, "Program name too long.\n");
-        exit(1);
-    }
-    writeWord(0, i + 3, 0);
-    registers[8] = loadSegment - 0x10;
-    writeWord(envSegment, 0x2c, 0);
-    i = 0x81;
-    for (int a = 2; a < argc; ++a) {
-        if (a > 2) {
-            writeByte(' ', i, 0);
-            ++i;
-        }
-        char* arg = argv[a];
-        bool quote = strchr(arg, ' ') != 0;
-        if (quote) {
-            writeByte('\"', i, 0);
-            ++i;
-        }
-        for (; *arg != 0; ++arg) {
-            int c = *arg;
-            if (c == '\"') {
-                writeByte('\\', i, 0);
-                ++i;
-            }
-            writeByte(c, i, 0);
-            ++i;
-        }
-        if (quote) {
-            writeByte('\"', i, 0);
-            ++i;
-        }
-    }
-    if (i > 0xff) {
-        fprintf(stderr, "Arguments too long.\n");
-        exit(1);
-    }
-    writeWord(0x9fff, 2, 0);
-    writeByte(i - 0x81, 0x80, 0);
-    writeByte(13, i, 0);
-}
-
-void
-load_executable(FILE *fp, int length, int argc, char **argv)
-{
-	ip = 0x100;
-	flags = 2;
-	write_environ(argc, argv, 0);
-    for (int i = 0; i < length; ++i) {
-        registers[8] = loadSegment + (i >> 4);
-        physicalAddress(i & 15, 0, true);
-    }
-    for (int i = 0; i < 4; ++i)
-        registers[8 + i] = loadSegment - 0x10;
-    if (length >= 2 && readWord(0x100) == 0x5a4d) {  // .exe file?
-        if (length < 0x21) {
-            fprintf(stderr, "%s is too short to be an .exe file\n", filename);
-            exit(1);
-        }
-        Word bytesInLastBlock = readWord(0x102);
-        int exeLength = ((readWord(0x104) - (bytesInLastBlock == 0 ? 0 : 1))
-            << 9) + bytesInLastBlock;
-        int headerParagraphs = readWord(0x108);
-        int headerLength = headerParagraphs << 4;
-        if (exeLength > length || headerLength > length ||
-            headerLength > exeLength) {
-            fprintf(stderr, "%s is corrupt\n", filename);
-            exit(1);
-        }
-        int relocationCount = readWord(0x106);
-        Word imageSegment = loadSegment + headerParagraphs;
-        int relocationData = readWord(0x118);
-        for (int i = 0; i < relocationCount; ++i) {
-            int offset = readWord(relocationData + 0x100);
-            registers[9] = readWord(relocationData + 0x102) + imageSegment;
-            writeWord(readWordSeg(offset, 1) + imageSegment, offset, 1);
-            relocationData += 4;
-        }
-        //loadSegment = imageSegment;  // Prevent further access to header
-        Word ss = readWord(0x10e) + imageSegment;  // SS
-        registers[10] = ss;
-        setSP(readWord(0x110));
-        stackLow =
-            (((exeLength - headerLength + 15) >> 4) + imageSegment) << 4;
-        if (stackLow < ((DWord)ss << 4) + 0x10)
-            stackLow = ((DWord)ss << 4) + 0x10;
-        ip = readWord(0x114);
-        registers[9] = readWord(0x116) + imageSegment;  // CS
-    }
-    else {
-        if (length > 0xff00) {
-            fprintf(stderr, "%s is too long to be a .com file\n", filename);
-            exit(1);
-        }
-        setSP(0xFFFE);
-        stackLow = ((DWord)loadSegment << 4) + length;
-    }
-    // Some testcases copy uninitialized stack data, so mark as initialized
-    // any locations that could possibly be stack.
-    if (sp()) {
-        Word d = 0;
-        if (((DWord)registers[10] << 4) < stackLow)
-            d = stackLow - ((DWord)registers[10] << 4);
-        while (d < sp()) {
-            writeByte(0, d, 2);
-            ++d;
-        }
-    } else {
-        Word d = 0;
-        if (((DWord)registers[10] << 4) < stackLow)
-            d = stackLow - ((DWord)registers[10] << 4);
-        do {
-            writeByte(0, d, 2);
-            ++d;
-        } while (d != 0);
-    }
-}
-
-void set_entry_registers(void)
-{
-    registers[8] = loadSegment - 0x10;
-    setAX(0x0000);
-    setCX(0x00FF);	// MUST BE 0x00FF as for big endian test below!!!!
-    setDX(segment);
-    registers[3] = 0x0000;  // BX
-    registers[5] = 0x091C;  // BP
-    setSI(0x0100);
-    setDI(0xFFFE);
-}
-
-void
-load_bios_irqs(void)
-{
-    // Fill up parts of the interrupt vector table, the BIOS clock tick count,
-    // and parts of the BIOS ROM area with stuff, for the benefit of the far
-    // pointer tests.
-    registers[8] = 0x0000;
-    writeWord(0x0000, 0x0080, 0);
-    writeWord(0xFFFF, 0x0082, 0);
-    writeWord(0x0058, 0x046C, 0);
-    writeWord(0x000C, 0x046E, 0);
-    writeByte(0x00, 0x0470, 0);
-    registers[8] = 0xF000;
-    for (int i = 0; i < 0x100; i += 2)
-        writeWord(0xF4F4, 0xFF00 + (unsigned)i, 0);
-    // We need some variety in the ROM BIOS content...
-    writeByte(0xEA, 0xFFF0, 0);
-    writeWord(0xFFF0, 0xFFF1, 0);
-    writeWord(0xF000, 0xFFF3, 0);
-}
-
-char* initString(Word offset, int seg, bool write, int buffer, int bytes)
-{
-    for (int i = 0; i < bytes; ++i) {
-        char p;
-        if (write) {
-            p = pathBuffers[buffer][i];
-            ram[physicalAddress(offset + i, seg, true)] = p;
-        }
-        else {
-            p = ram[physicalAddress(offset + i, seg, false)];
-            pathBuffers[buffer][i] = p;
-        }
-        if (p == 0 && bytes == 0x10000)
-            break;
-    }
-    if (!write)
-        pathBuffers[buffer][0xffff] = 0;
-    return pathBuffers[buffer];
-}
-char* dsdxparms(bool write, int bytes)
-{
-    return initString(dx(), 3, write, 0, bytes);
-}
-char *dsdx()
-{
-	return dsdxparms(false, 0x10000);
-}
-int dosError(int e)
-{
-    if (e == ENOENT)
-        return 2;
-    fprintf(stderr, "%s\n", strerror(e));
-    runtimeError("");
-    return 0;
-}
-void handle_intcall(void)
-{
-        int fileDescriptor;
-                switch (data << 8 | ah()) {
-                    case 0x1a00:
-                        data = registers[8];
-                        registers[8] = 0;
-                        setDX(readWordSeg(0x046c, 0));
-                        setCX(readWordSeg(0x046e, 0));
-                        setAL(readByte(0x0470, 0));
-                        registers[8] = data;
-                        break;
-		    		case 0x2109:
-						{
-						char *p = strchr((char *)dsdx(), '$');
-						if (p) write(STDOUT_FILENO, (char *)dsdx(), p-(char *)dsdx());
-						}
-						break;
-                    case 0x2130:
-                        setAX(0x1403);
-                        setBX(0xff00);
-                        setCX(0);
-                        break;
-                    case 0x2139:
-                        if (mkdir(dsdx(), 0700) == 0)
-                            setCF(false);
-                        else {
-                            setCF(true);
-                            setAX(dosError(errno));
-                        }
-                        break;
-                    case 0x213a:
-                        if (rmdir(dsdx()) == 0)
-                            setCF(false);
-                        else {
-                            setCF(true);
-                            setAX(dosError(errno));
-                        }
-                        break;
-                    case 0x213b:
-                        if (chdir(dsdx()) == 0)
-                            setCF(false);
-                        else {
-                            setCF(true);
-                            setAX(dosError(errno));
-                        }
-                        break;
-                    case 0x213c:
-                        fileDescriptor = creat(dsdx(), 0700);
-                        if (fileDescriptor != -1) {
-                            setCF(false);
-                            int guestDescriptor = getDescriptor();
-                            setAX(guestDescriptor);
-                            fileDescriptors[guestDescriptor] = fileDescriptor;
-                        }
-                        else {
-                            setCF(true);
-                            setAX(dosError(errno));
-                        }
-                        break;
-                    case 0x213d:
-                        fileDescriptor = open(dsdx(), al() & 3, 0700);
-                        if (fileDescriptor != -1) {
-                            setCF(false);
-                            setAX(getDescriptor());
-                            fileDescriptors[ax()] = fileDescriptor;
-                        }
-                        else {
-                            setCF(true);
-                            setAX(dosError(errno));
-                        }
-                        break;
-                    case 0x213e:
-                        fileDescriptor = fileDescriptors[bx()];
-                        if (fileDescriptor == -1) {
-                            setCF(true);
-                            setAX(6);  // Invalid handle
-                            break;
-                        }
-                        if (fileDescriptor >= 5 &&
-                            close(fileDescriptor) != 0) {
-                            setCF(true);
-                            setAX(dosError(errno));
-                        }
-                        else {
-                            fileDescriptors[bx()] = -1;
-                            setCF(false);
-                        }
-                        break;
-                    case 0x213f:
-                        fileDescriptor = fileDescriptors[bx()];
-                        if (fileDescriptor == -1) {
-                            setCF(true);
-                            setAX(6);  // Invalid handle
-                            break;
-                        }
-                        data = read(fileDescriptor, pathBuffers[0], cx());
-                        dsdxparms(true, cx());
-                        if (data == (DWord)-1) {
-                            setCF(true);
-                            setAX(dosError(errno));
-                        }
-                        else {
-                            setCF(false);
-                            setAX(data);
-                        }
-                        break;
-                    case 0x2140:
-                        fileDescriptor = fileDescriptors[bx()];
-                        if (fileDescriptor == -1) {
-                            setCF(true);
-                            setAX(6);  // Invalid handle
-                            break;
-                        }
-                        data = write(fileDescriptor, dsdxparms(false, cx()), cx());
-                        if (data == (DWord)-1) {
-                            setCF(true);
-                            setAX(dosError(errno));
-                        }
-                        else {
-                            setCF(false);
-                            setAX(data);
-                        }
-                        break;
-                    case 0x2141:
-                        if (unlink(dsdx()) == 0)
-                            setCF(false);
-                        else {
-                            setCF(true);
-                            setAX(dosError(errno));
-                        }
-                        break;
-                    case 0x2142:
-                        fileDescriptor = fileDescriptors[bx()];
-                        if (fileDescriptor == -1) {
-                            setCF(true);
-                            setAX(6);  // Invalid handle
-                            break;
-                        }
-                        data = lseek(fileDescriptor, (cx() << 16) + dx(),
-                            al());
-                        if (data != (DWord)-1) {
-                            setCF(false);
-                            setDX(data >> 16);
-                            setAX(data);
-                        }
-                        else {
-                            setCF(true);
-                            setAX(dosError(errno));
-                        }
-                        break;
-                    case 0x2144:
-                        if (al() != 0) {
-                            fprintf(stderr, "Unknown IOCTL 0x%02x", al());
-                            runtimeError("");
-                        }
-                        fileDescriptor = fileDescriptors[bx()];
-                        if (fileDescriptor == -1) {
-                            setCF(true);
-                            setAX(6);  // Invalid handle
-                            break;
-                        }
-                        data = isatty(fileDescriptor);
-                        if (data == 1) {
-                            setDX(0x80);
-                            setCF(false);
-                        }
-                        else {
-                            if (errno == ENOTTY) {
-                                setDX(0);
-                                setCF(false);
-                            }
-                            else {
-                                setAX(dosError(errno));
-                                setCF(true);
-                            }
-                        }
-                        break;
-                    case 0x2147:
-                        if (getcwd(pathBuffers[0], 64) != 0) {
-                            setCF(false);
-                            initString(si(), 3, true, 0, 0x10000);
-                        }
-                        else {
-                            setCF(true);
-                            setAX(dosError(errno));
-                        }
-                        break;
-                    case 0x214a:
-                        // Only allow attempts to "resize" the PSP segment,
-                        // and check that CS:IP and SS:SP do not overshoot the
-                        // segment end
-                        if (es() == loadSegment - 0x10) {
-                            DWord memEnd = (DWord)(es() + bx()) << 4;
-                            if (physicalAddress(ip, 1, false) < memEnd &&
-                                physicalAddress(sp() - 1, 2, true) < memEnd) {
-                                setCF(false);
-                                break;
-                            }
-                        }
-                        fprintf(stderr, "Bad attempt to resize DOS memory "
-                            "block: int 0x21, ah = 0x4a, bx = 0x%04x, "
-                            "es = 0x%04x", (unsigned)bx(), (unsigned)es());
-                        runtimeError("");
-                        break;
-                    case 0x214c:
-                        printf("\n*** Bytes: %i\n", length);
-                        printf("*** Cycles: %i\n", ios);
-                        printf("*** EXIT code %i\n", al());
-                        exit(0);
-                        break;
-                    case 0x2156:
-                        if (rename(dsdx(), initString(di(), 0, false, 1, 0x10000)) == 0)
-                            setCF(false);
-                        else {
-                            setCF(true);
-                            setAX(dosError(errno));
-                        }
-                        break;
-                    case 0x2157:
-                        switch (al()) {
-                            case 0x00:
-                                fileDescriptor = fileDescriptors[bx()];
-                                if (fileDescriptor == -1) {
-                                    setCF(true);
-                                    setAX(6);  // Invalid handle
-                                    break;
-                                }
-                                setCX(0x0000); // Return a "reasonable" file
-                                setDX(0x0021); // time and file date
-                                setCF(false);
-                                break;
-                            default:
-                                fprintf(stderr, "Unknown DOS call: int 0x21, "
-                                    "ax = 0x%04x", (unsigned)ax());
-                                runtimeError("");
-                        }
-                        break;
-                    default:
-                        fprintf(stderr, "Unknown DOS/BIOS call: int 0x%02x, "
-                            "ah = 0x%02x", (unsigned)data, (unsigned)ah());
-                        runtimeError("");
-						break;
-                }
-}
-#endif
-
-#if ELKS
-unsigned int sysbrk;
-
-#define isprint(c) ((c) > ' ' && (c) <= '~')
-
-static int lastnum[16] = {-1};
-static int lastaddr = -1;
-
-static void
-printline(int address, int *num, char *chr, int count, int summary)
-{
-	int   j;
-
-	if (lastaddr >= 0)
-	{
-		for (j = 0; j < count; j++)
-			if (num[j] != lastnum[j])
-				break;
-		if (j == 16 && summary)
-		{
-			if (lastaddr + 16 == address)
-			{
-				printf("*\n");
-			}
-			return;
-		}
-	}
-
-	lastaddr = address;
-	printf("%04x:", address);
-	for (j = 0; j < count; j++)
-	{
-		if (j == 8)
-			putchar(' ');
-		if (num[j] >= 0)
-			printf(" %02x", num[j]);
-		else
-			printf("   ");
-		lastnum[j] = num[j];
-		num[j] = -1;
-	}
-
-	for (j=count; j < 16; j++)
-	{
-		if (j == 8)
-			putchar(' ');
-		printf("   ");
-	}
-
-	printf("  ");
-	for (j = 0; j < count; j++)
-		printf("%c", chr[j]);
-	printf("\n");
-}
-
-void hexdump(int startoff, unsigned char *addr, int count, int summary)
-{
-	int offset;
-	char buf[20];
-	int num[16];
-
-	for (offset = startoff; count > 0; count -= 16, offset += 16)
-	{
-		int j, ch;
-
-		memset(buf, 0, 16);
-		for (j = 0; j < 16; j++)
-			num[j] = -1;
-		for (j = 0; j < 16; j++)
-		{
-			ch = *addr++;
-
-			num[j] = ch;
-			if (isprint(ch) && ch < 0x80)
-				buf[j] = ch;
-			else
-				buf[j] = '.';
-		}
-		printline(offset, num, buf, count > 16? 16: count, summary);
-	}
-}
-
-void
-write_environ(int argc, char **argv, char **envp)
-{
-	char **p;
-	int argv_len=0, argv_count=0;
-	int envp_len=0, envp_count=0;
-	int stack_bytes;
-	int pip;
-	int pcp, baseoff;
-
-	/* How much space for argv */
-	for(p=argv; p && *p && argv_len >= 0; p++)
-	{
-	   //printf("arg %s\n", *p);
-	   argv_count++; argv_len += strlen(*p)+1;
-	}
-
-	/* How much space for envp */
-	for(p=envp; p && *p && envp_len >= 0; p++)
-	{
-	   //printf("env %s\n", *p);
-	   envp_count++; envp_len += strlen(*p)+1;
-	}
-
-	/* tot it all up */
-	stack_bytes = 2				/* argc */
-	            + argv_count * 2 + 2	/* argv */
-		    + argv_len
-		    + envp_count * 2 + 2	/* envp */
-		    + envp_len;
-
-	printf("argv = (%d,%d), envp=(%d,%d), size=0x%x\n",
-	        argv_count, argv_len, envp_count, envp_len, stack_bytes);
-
-	stack_bytes = (stack_bytes + 1) & ~1;
-
-	setSP(sp() - stack_bytes);
-	int stk_ptr = sp();
-
-	/* Now copy in the strings */
-	pip = stk_ptr;
-	pcp = stk_ptr+2*(1+argv_count+1+envp_count+1);
-
-	/* baseoff = stk_ptr + stack_bytes; */
-	/* baseoff = stk_ptr; */
-	baseoff = 0;
-	writeWord(argv_count, pip, 2);	pip += 2;
-	for(p=argv; p && *p; p++)
-	{
-	   int n;
-
-	   writeWord(pcp-baseoff, pip, 2);	pip += 2;
-	   //printf("argv = %d, ", pcp-baseoff);
-	   n = strlen(*p)+1;
-	   for (int i = 0; i<n; i++) {
-		writeByte((*p)[i], pcp+i, 2);
-		//printf("%c", (*p)[i]);
-	   }
-	   //printf("\n");
-	   pcp += n;
-	}
-	writeWord(0, pip, 2);	pip += 2;
-
-	for(p=envp; p && *p; p++)
-	{
-	   int n;
-
-	   writeWord(pcp-baseoff, pip, 2);	pip += 2;
-	   n = strlen(*p)+1;
-	   for (int i = 0; i<n; i++)
-		writeByte((*p)[i], pcp+i, 2);
-	   pcp += n;
-	}
-	writeWord(0, pip, 2);	pip += 2;
-}
-
-void
-load_executable(FILE *fp, int length, int argc, char **argv)
-{
-	extern char **environ;
-
-	flags = 0x3202;
-	// FIXME check hlen < 0x20, unset hdr access after, check tseg & 15
-    for (int i = 0; i < 0x20; ++i) {
-        registers[8] = loadSegment + (i >> 4); // ES
-        physicalAddress(i & 15, 0, true);
-    }
-    // 8 = ES, 9 = CS, 10 = SS, 11 = DS YYY
-    for (int i = 0; i < 4; ++i)
-        registers[8 + i] = loadSegment;
-    int hlen = readWord(0x04);
-	int version = readWord(0x06);
-	int tseg = readWord(0x08);
-	int dseg = readWord(0x0C);
-	int bseg = readWord(0x10);
-	int entry = readWord(0x14);
-	int chmem = readWord(0x18);
-	int minstack = readWord(0x1C);
-    printf("hlen %x version %x tseg %x dseg %x bseg %x entry %x chmem %x minstack %x\n",
-		hlen, version, tseg, dseg, bseg, entry, chmem, minstack);
-    for (int i = hlen; i < length+bseg+8192; ++i) {
-        registers[8] = loadSegment + (i >> 4);
-        physicalAddress(i & 15, 0, true); // ES
-    }
-    registers[9] = loadSegment + (hlen>>4); // CS
-    registers[10] = loadSegment + (hlen>>4) + ((tseg + 15) >> 4); // SS
-    registers[11] = registers[10]; // DS = SS
-	sysbrk = dseg + bseg + 4096;
-	int stack = sysbrk + 4096;
-	//int stack = 0xfffe;
-    setSP(stack);
-	write_environ(argc, argv+1, environ);
-	//hexdump(sp(), &ram[physicalAddress(sp(), 2, false)], stack-sp(), 0);
-	//int extra = stack - sp();
-	printf("Text %x Data %x Stack %x\n", tseg, dseg+bseg+4096, 4096);
-	ip = entry;
-
-	for (int i=dseg; i<dseg+bseg; i++)	// clear BSS
-		writeByte(0, i, 3);		// DS:i
-}
-
-void set_entry_registers(void)
-{
-	printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", registers[9], ip, registers[11],
-					registers[10], sp());
-    registers[8] = registers[11]; // ES = DS
-    setAX(0x0000);
-    setCX(0x00FF);	// MUST BE 0x00FF as for big endian test below!!!!
-    setDX(0x0000);
-    registers[3] = 0x0000;  // BX
-    registers[5] = 0x0000;  // BP
-    setSI(0x0000);
-    setDI(0x0000);
-}
-
-void
-load_bios_irqs(void)
-{
-}
-
-void handle_intcall(void)
-{
-				unsigned char *p;
-				unsigned int v;
-				v = (data << 8) | ax();
-                switch (v) {
-				// ARGS: BX, CX, DX, DI, SI XXX
-				case 0x8001:		// exit
-					printf("EXIT %d\n", bx());
-					exit(bx());
-				case 0x8004:		// write
-            		p = &ram[physicalAddress(cx(), 2, false)]; // SS
-					if (f_asmout) v = dx();
-					else v = write(bx(), p, dx());
-					setAX(v);
-					break;
-				case 0x8005:		// open
-            		p = &ram[physicalAddress(bx(), 2, false)]; // SS
-					printf("open '%s',%x,%o\n", p, cx(), dx());
-					setAX(-2);
-					break;
-				case 0x8036:		// ioctl
-					if (!f_asmout)
-						printf("IOCTL %d,%c%02d,%x\n", bx(), cx()>>8, cx()&0xff, dx());
-					setAX(bx() < 3? 0: -1);
-					break;
-				case 0x8000+17:		// brk
-					printf("BRK old %x new %x\n", sysbrk, bx());
-					sysbrk = bx();
-					setAX(0);
-					break;
-				case 0x8000+69:		// sbrk
-					printf("SBRK %d old %x new %x SP %x\n", bx(), sysbrk, sysbrk+bx(), sp());
-					v = sysbrk;
-					sysbrk += bx();
-					writeWord(v, cx(), 2); // SS
-					setAX(0);
-					break;
-                default:
-                    fprintf(stderr, "Unknown SYS call: int 0x%02x, "
-                        "AX %x(%d) BX %x CX %x DX %x\n", (unsigned)data,
-						ax(), ax(), bx(), cx(), dx());
-                    //runtimeError("");
-					setAX(0xffff);
-					break;
-                }
-}
-#endif
 
 void emulator(void)
 {
@@ -1523,17 +739,14 @@ void emulator(void)
                 o('m');
                 break;
             case 0xcc:  // INT 3
-                data = 3;
-				handle_intcall();
+				handle_intcall(3);
 				break;
             case 0xcd:
-                data = fetchByte();
-				handle_intcall();
+				handle_intcall(fetchByte());
                 o('$');
                 break;
 			case 0xce:  // INTO
-                data = 4;
-				handle_intcall();
+				handle_intcall(4);
 				break;
             case 0xcf:  // IRET
                 o('I');
@@ -1835,8 +1048,6 @@ int main(int argc, char* argv[])
     }
     ram = (Byte*)alloc(0x100000);
     initialized = (Byte*)alloc(0x20000);
-    pathBuffers[0] = (char*)alloc(0x10000);
-    pathBuffers[1] = (char*)alloc(0x10000);
     memset(ram, 0, 0x100000);
     memset(initialized, 0, 0x20000);
 
@@ -1867,14 +1078,6 @@ int main(int argc, char* argv[])
 	load_executable(fp, length, argc, argv);
 	load_bios_irqs();
 	set_entry_registers();
-
-    fileDescriptors = (int*)alloc(6*sizeof(int));
-    fileDescriptors[0] = STDIN_FILENO;
-    fileDescriptors[1] = STDOUT_FILENO;
-    fileDescriptors[2] = STDERR_FILENO;
-    fileDescriptors[3] = STDOUT_FILENO;
-    fileDescriptors[4] = STDOUT_FILENO;
-    fileDescriptors[5] = -1;
 
 #ifdef __APPLE__	/* macOS stdio drops characters! */
     static char buf[1];

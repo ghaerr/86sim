@@ -1,5 +1,5 @@
 /*
- * 8086 disassembler
+ * (Standalone) 8086 disassembler
  *
  * Jan 2022 Greg Haerr
  * Adapted from Andrew Jenner's 8086 simulator 86sim.cpp
@@ -12,12 +12,16 @@ typedef unsigned int DWord;
 typedef int bool;
 enum { false = 0, true };
 
-extern bool wordSize;
-extern bool sourceIsRM;
-extern Byte opcode;
-extern int f_asmout;
-Word cs();
-Byte readByte(Word offset, int seg);
+/* shared variables only if linked with sim.c */
+bool wordSize;
+bool sourceIsRM;
+Byte opcode;
+int f_asmout;
+
+/* user-defined external functions */
+Word registers[12];
+static inline Word cs() { return registers[9]; }	/* displayed segment */
+Byte readByte(Word offset, int seg);	/* read next instruction byte */
 
 static Word startIP;
 static Byte d_modRM;

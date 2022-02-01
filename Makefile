@@ -3,27 +3,27 @@
 ELKS=../elks-gh
 CFLAGS=-Wall -O3
 
-all: 86sim-dos 86sim-elks test testdos
+all: sim-dos sim-elks test testdos
 
 clean:
-	-rm 86sim-dos 86sim-elks
+	-rm sim-dos sim-elks
 
-test: 86sim-elks
-	./86sim-elks $(ELKS)/target/bin/banner ELKS Emulator
-	#./86sim-elks $(ELKS)/target/bin/echo This is a test
-	#./86sim-elks $(ELKS)/target/bin/printenv
-	#./86sim-elks $(ELKS)/target/bin/env
-	#./86sim-elks $(ELKS)/target/bin/hd 0:0#256
-	#./86sim-elks $(ELKS)/target/bin/hd hd123
-	#./86sim-elks $(ELKS)/target/bin/login
-	#./86sim-elks $(ELKS)/target/bin/chmem $(ELKS)/target/bin/login
+test: sim-elks
+	./sim-elks $(ELKS)/target/bin/banner ELKS Emulator
+	#./sim-elks $(ELKS)/target/bin/echo This is a test
+	#./sim-elks $(ELKS)/target/bin/printenv
+	#./sim-elks $(ELKS)/target/bin/env
+	#./sim-elks $(ELKS)/target/bin/hd 0:0#256
+	#./sim-elks $(ELKS)/target/bin/hd hd123
+	#./sim-elks $(ELKS)/target/bin/login
+	#./sim-elks $(ELKS)/target/bin/chmem $(ELKS)/target/bin/login
 
-testdos: 86sim-dos
-	./86sim-dos test.exe
-	#./86sim-dos hexdump.exe
+testdos: sim-dos
+	./sim-dos test.exe
+	#./sim-dos hexdump.exe
 
-86sim-dos: 86sim.c
-	$(CC) $(CFLAGS) -DMSDOS=1 -o 86sim-dos 86sim.c 86disasm.c
+sim-dos: sim.c disasm.c loadexec-dos.c
+	$(CC) $(CFLAGS) -DMSDOS=1 -o sim-dos $^
 
-86sim-elks: 86sim.c 86disasm.c
-	$(CC) $(CFLAGS) -DELKS=1 -o 86sim-elks 86sim.c 86disasm.c
+sim-elks: sim.c disasm.c loadexec-elks.c
+	$(CC) $(CFLAGS) -DELKS=1 -o sim-elks $^

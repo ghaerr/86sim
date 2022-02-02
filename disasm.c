@@ -105,6 +105,25 @@ static void outRM(Word w) {
 #define JMP			0x2000	/* display jmp w/byte, word or dword operand */
 #define SHIFTBY1	0x4000	/* display shift 1 operand */
 #define SHIFTBYCL	0x8000	/* display shift CL operand */
+void out_bw(int flags)
+{
+	int bw;
+
+	if ((flags & (BW|OPS2|RM)) == 0)
+		return;
+
+	/* discard non- BW, IMM, inc/dec and non-direct addressing */
+	bw = (flags == BW || (flags & IMM) || opcode == 0xfe || opcode == 0xff);
+	if (!bw && ((flags & (OPS2|RM)) && (d_modRM & 0xc7) != 6))
+		return;
+	/* discard immediate to register */
+	if ((flags & IMM) && ((flags & (OPS2|RM)) && ((d_modRM & 0xc0) == 0xc0)))
+		return;
+	/* discard register operands */
+	if (flags & REGOP)
+		return;
+	putchar(wordSize? 'w': 'b');
+}
 static void outs(const char *str, int flags)
 {
 	Word w, w2;
@@ -133,10 +152,7 @@ static void outs(const char *str, int flags)
 	while (cols++ < 6)
 		printf("   ");
 	printf("%s", str);
-	if (flags & BW) {
-		if (f_asmout )putchar(wordSize? 'w': 'b');
-		else if (!wordSize) putchar('b');	//FIXME
-	}
+	if (flags & BW) out_bw(flags);
 	if (flags != 0) putchar('\t');
 	if (segOver != -1) {
 		printf("%s", segregs[segOver]);

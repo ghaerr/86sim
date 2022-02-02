@@ -33,7 +33,7 @@ int aluOperation;
 bool running = false;
 int oCycle;
 
-bool f_disasm = 0;		/* do disassembly */
+bool f_disasm = 1;		/* do disassembly */
 bool f_asmout = 0;		/* output gnu as compatible input */
 
 void error(const char* operation)

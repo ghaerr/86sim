@@ -244,7 +244,7 @@ nextopcode:
             case 0x24: case 0x25: case 0x2c: case 0x2d:
             case 0x34: case 0x35: case 0x3c: case 0x3d:  // alu accum,i
 				sourceIsRM = 1;	// acc dest
-				outs(alunames[(opcode >> 3) & 7], BW|RDMOD|IMM|ACC);
+				outs(alunames[(opcode >> 3) & 7], BW|IMM|ACC);
 				break;
             case 0x06: case 0x0e: case 0x16: case 0x1e:  // PUSH segreg
 				d_modRM = opcode;

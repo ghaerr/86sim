@@ -12,6 +12,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "sim.h"
+#include "disasm.h"
 
 Byte* initialized;
 bool useMemory;
@@ -35,6 +36,30 @@ int oCycle;
 
 bool f_disasm = 1;		/* do disassembly */
 bool f_asmout = 0;		/* output gnu as compatible input */
+
+char *getsymbol(int seg, int offset)
+{
+    static char buf[8];
+
+    sprintf(buf, f_asmout? "0x%04x": "%04x", offset);
+    return buf;
+}
+
+char *getsegsymbol(int seg)
+{
+    static char buf[8];
+
+    sprintf(buf, f_asmout? "0x%04x": "%04x", seg);
+    return buf;
+}
+
+static int nextbyte_mem(int cs, int ip)
+{
+    int b = readByte(ip, 1);     // seg =1 for CS
+    if (!f_asmout) printf("%02x ", b);
+    else f_outcol = 0;
+    return b;
+}
 
 void error(const char* operation)
 {
@@ -416,7 +441,10 @@ void emulator(void)
     bool prefix = false;
     for (int i = 0; i < 1000000000; ++i) {
         if (!repeating) {
-			if (f_disasm) disasm(cs(), ip);
+            if (f_disasm) {
+                if (!f_asmout) printf("%04hx:%04hx  ", cs(), ip);
+                disasm(cs(), ip, nextbyte_mem, ds());
+            }
             if (!prefix) {
                 segmentOverride = -1;
                 rep = 0;

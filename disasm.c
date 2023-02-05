@@ -1,10 +1,12 @@
 /*
- * (Standalone) 8086 disassembler
+ * (Standalone) single-file tiny 8086 disassembler
  *
  * Jan 2022 Greg Haerr
- * Adapted from Andrew Jenner's 8086 simulator 86sim.cpp
+ * Inspired by Andrew Jenner's 8086 simulator 86sim.cpp
  */
 #include <stdio.h>
+#include <string.h>
+#include "disasm.h"
 
 typedef unsigned char Byte;
 typedef unsigned short int Word;
@@ -17,23 +19,40 @@ bool wordSize;
 bool sourceIsRM;
 Byte opcode;
 int f_asmout;
+int f_outcol;
 
 static Word startIP;
 static Word startCS;
+static Word startDS;
+
 static Byte d_modRM;
 //static int segOver;
-static int cols;
 
 /* user-defined external functions */
-extern Byte readByte(Word offset, int seg);	/* read next instruction byte */
-static Byte d_fetchByte()
+//extern Byte readByte(Word offset, int seg);	/* read next instruction byte */
+
+static void decode();
+static int (*fetchbyte)(int, int);
+
+static Word d_fetchByte()
 {
-	Byte b = readByte(startIP++, 1);
-	if (!f_asmout) {
-		printf("%02x ", b);
-		cols++;
-	}
-	return b;
+    Byte b = fetchbyte(startCS, startIP++);
+	//Byte b = readByte(startIP++, 1);      /* for 86sim, seg =1 for CS */
+	//if (!f_asmout) printf("%02x ", b);
+    f_outcol++;
+    return b;
+}
+
+int disasm(int cs, int ip, int (*nextbyte)(int, int), int ds)
+{
+	startCS = cs;
+	startIP = (int)ip;
+	fetchbyte = nextbyte;
+    startDS = ds;
+	f_outcol = 0;
+	//if (!f_asmout) printf("%04hx:%04hx  ", cs, ip);
+	decode();
+	return startIP;
 }
 
 static const char *wordregs[] = {
@@ -42,16 +61,6 @@ static const char *byteregs[] = {
 	"%al", "%cl", "%dl", "%bl", "%ah", "%ch", "%dh", "%bh"};
 static const char *segregs[] = { "%es", "%cs", "%ss", "%ds"};
 
-static void decode();
-Word disasm(Word cs, Word ip)
-{
-	startCS = cs;
-	startIP = ip;
-	cols = 0;
-	if (!f_asmout) printf("%04hx:%04hx  ", cs, ip);
-	decode();
-	return startIP;
-}
 static Word d_fetchWord() { Word w = d_fetchByte(); w += d_fetchByte() << 8; return w; }
 static int d_modRMReg() { return (d_modRM >> 3) & 7; }
 static void outREG() {
@@ -71,7 +80,7 @@ static void outRM(Word w) {
     switch (d_modRM & 0xc0) {
         case 0x00:
             if ((d_modRM & 0xc7) == 6)
-				printf("(0x%04x)", w);
+                printf("(%s)", getsymbol(startDS, w));
 			else printf("%s", basemodes[d_modRM & 7]);
             break;
         case 0x40:
@@ -126,8 +135,9 @@ void out_bw(int flags)
 }
 static void outs(const char *str, int flags)
 {
-	Word w, w2;
-	signed char c;
+	Word w = 0;
+    Word w2 = 0;
+	signed char c = 0;
 
 	if (flags & RDMOD)
 		d_modRM = d_fetchByte();
@@ -149,8 +159,12 @@ static void outs(const char *str, int flags)
 	if (flags & DWORD)
 		w = d_fetchWord();
 
-	while (cols++ < 6)
+	while (f_outcol++ < 6)
 		printf("   ");
+    if (f_asmout && !strcmp(str, "???")) {
+        printf(".byte 0x%02x\n", opcode);
+        return;
+    }
 	printf("%s", str);
 	if (flags & BW) out_bw(flags);
 	if (flags != 0) putchar('\t');
@@ -188,24 +202,29 @@ static void outs(const char *str, int flags)
 	if ((flags & ACC) && sourceIsRM == 0)
 		printf("%s,", wordSize? wordregs[0]: byteregs[0]);
 	if ((flags & MEMWORD) && sourceIsRM)
-		printf("(0x%04x),", w2);
+        printf("(%s),", getsymbol(startDS, w2));
 	if ((flags & ACC) && sourceIsRM)
 		printf("%s", wordSize? wordregs[0]: byteregs[0]);
 	if ((flags & MEMWORD) && sourceIsRM == 0)
-		printf("(0x%04x)", w2);
+        printf("(%s)", getsymbol(startDS, w2));
 	if (flags & REGOP) printf("%s", wordSize? wordregs[opcode & 7]: byteregs[opcode & 7]);
 	if ((flags & (JMP|IMM|WORD)) == WORD) printf("%u", w2);
-	if (flags & JMP) {
-		//if (flags & SBYTE) printf("%04x", startIP + c);
-		if (flags & SBYTE) printf(".%s%d // %04x", c>=0? "+": "", c+2, startIP+c);
-		//if (flags & WORD) printf("%04x", (startIP + w2) & 0xffff);
-        if (flags & WORD) {
-            if (opcode == 0xfe || opcode == 0xff) printf("*0x%04x", w2);
-            else printf("0x%04x // %04x", w2+2, (startIP + w2) & 0xffff);
+    if (flags & JMP) {
+        if (flags & SBYTE) {
+            if (f_asmout) printf(".%s%d // %04x", c>=0? "+": "", c+2, startIP+c);
+            else printf("%04x", startIP + c);
         }
-		if (flags & DWORD) printf("$0x%04x,$0x%04x", w, w2);
-	}
-	printf("\n");
+        if (flags & WORD) {
+            int waddr = (startIP + w2) & 0xffff;
+            if (opcode == 0xfe || opcode == 0xff) {
+                printf("*%s", getsymbol(startCS, w2));
+            } else printf("%s // %04x", getsymbol(startCS, waddr), waddr);
+        }
+        if (flags & DWORD) {
+            printf("$%s,$%s", getsegsymbol(w), getsymbol(w, w2));
+        }
+    }
+    printf("\n");
 }
 
 static void decode(void)
@@ -251,6 +270,7 @@ nextopcode:
             case 0x24: case 0x25: case 0x2c: case 0x2d:
             case 0x34: case 0x35: case 0x3c: case 0x3d:  // alu accum,i
 				sourceIsRM = 1;	// acc dest
+				//outs(alunames[(opcode >> 3) & 7], BW|RDMOD|IMM|ACC);
 				outs(alunames[(opcode >> 3) & 7], BW|IMM|ACC);
 				break;
             case 0x06: case 0x0e: case 0x16: case 0x1e:  // PUSH segreg
@@ -266,7 +286,6 @@ nextopcode:
 #if 1
                 static const char *segprefix[] = { "es", "cs", "ss", "ds"};
                 outs(segprefix[operation - 4], 0);
-
                 break;
 #else
                 segOver = operation - 4;
@@ -314,8 +333,8 @@ nextopcode:
             case 0x7c: case 0x7d: case 0x7e: case 0x7f:  // Jcond cb
 				{
 				static const char *jumpnames[] = {
-					"jo ", "jno", "jb ", "jnb", "jz ", "jnz", "jbe", "ja ",
-					"js ", "jns", "jpe", "jpo","jl ", "jge", "jle", "jg " };
+					"jo ", "jno", "jb ", "jae", "je ", "jne", "jbe", "ja ",
+					"js ", "jns", "jp", "jnp","jl ", "jge", "jle", "jg " };
 				outs(jumpnames[opcode & 0x0f], JMP|SBYTE);
 				}
                 break;
@@ -365,17 +384,17 @@ nextopcode:
 				sourceIsRM = 0;	// acc src
 				outs("xchg", ACC|REGOP);
                 break;
-            case 0x98:  // CBW
+            case 0x98:  // CBTW
                 outs("cbtw", 0);
                 break;
-            case 0x99:  // CWD
-                outs("cwd", 0);
+            case 0x99:  // CWTD
+                outs("cwtd", 0);
                 break;
             case 0x9a:  // CALL cp
-				outs("call", JMP|DWORD);
+				outs("lcall", JMP|DWORD);
                 break;
             case 0x9b:  // WAIT
-				outs("wait", 0);
+				outs("fwait", 0);
 				break;
             case 0x9c:  // PUSHF
                 outs("pushf", 0);
@@ -439,10 +458,10 @@ nextopcode:
 				outs("mov", BW|IMM|REGOP);
                 break;
             case 0xc2: case 0xc3:  // RET
-                outs("ret", !wordSize? WORD: 0);
+                outs("ret", !wordSize? WORD: 0);    //FIXME should display $WORD
 				break;
 			case 0xca: case 0xcb:  // RETF
-                outs("retf", !wordSize? WORD: 0);
+                outs("lret", !wordSize? WORD: 0);   //FIXME should display $WORD
                 break;
             case 0xc4: case 0xc5:  // LES/LDS
 				//if (!useMemory) runtimeError("This instruction needs a memory address");
@@ -454,7 +473,7 @@ nextopcode:
 				outs("mov", BW|RDMOD|IMM|RM);
                 break;
             case 0xcc:  // INT 3
-				outs("int\t$3", 0);
+				outs("int3", 0);
 				break;
             case 0xcd:
 				wordSize = 0;
@@ -465,6 +484,7 @@ nextopcode:
 				break;
             case 0xcf:  // IRET
 				outs("iret", 0);
+                break;
             case 0xd0: case 0xd1: case 0xd2: case 0xd3:  // rot rmv,n
 				{
 				static const char *rotates[] = {
@@ -477,19 +497,20 @@ nextopcode:
 				}
                 break;
             case 0xd4:  // AAM
-				outs("aam", 0);
+				outs("aam", 0);     //FIXME should display $BYTE
                 break;
             case 0xd5:  // AAD
-				outs("aad", 0);
+				outs("aad", 0);     //FIXME should display $BYTE
                 break;
-            case 0xd6:  // SALC
+            case 0xd6:  // SALC (undocumented)
 				outs("salc", 0);
                 break;
             case 0xd7:  // XLATB
-				outs("xlatb", 0);
+				outs("xlatb", 0);   //FIXME xlat %ds:(%bx)?
                 break;
             case 0xe0: case 0xe1: case 0xe2:  // LOOPc cb
-				outs(opcode == 0xe0? "loopnz": "loopz", JMP|SBYTE);
+				outs(opcode == 0xe0? "loopne":
+                     opcode == 0xe1? "loope": "loop", JMP|SBYTE);
                 break;
             case 0xe3:  // JCXZ cb
 				outs("jcxz", JMP|SBYTE);
@@ -501,7 +522,7 @@ nextopcode:
 				outs("jmp", JMP|WORD);
                 break;
             case 0xea:  // JMP cp
-				outs("ljmpw", JMP|DWORD);
+				outs("ljmp", JMP|DWORD);
                 break;
             case 0xeb:  // JMP cb
 				outs("jmp", JMP|SBYTE);
@@ -538,7 +559,7 @@ nextopcode:
 						outs("test", BW|IMM|RM);
                         break;
                     case 2:  // NOT iv
-						outs("not", BW|RM);
+						outs("not", BW|RM);     //FIXME f6=notb, f7=notw
                         break;
                     case 3:  // NEG iv
 						outs("neg", BW|RM);

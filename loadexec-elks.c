@@ -231,6 +231,7 @@ void handle_intcall(int intno)
 	unsigned int v = (intno << 8) | ax();
 	unsigned char *p;
 
+    //fflush(stdout);
 	switch (v) {
 	// ARGS: BX, CX, DX, DI, SI
 	case 0x8001:		// exit

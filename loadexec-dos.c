@@ -81,11 +81,11 @@ static void init()
 
 void load_executable(FILE *fp, int length, int argc, char **argv)
 {
-	init();
+    init();
 
-	ip = 0x100;
-	flags = 2;
-	write_environ(argc, argv, 0);
+    ip = 0x100;
+    flags = 2;
+    write_environ(argc, argv, 0);
     for (int i = 0; i < length; ++i) {
         setES(loadSegment + (i >> 4));
         physicalAddress(i & 15, 0, true);
@@ -99,7 +99,7 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
         }
         Word bytesInLastBlock = readWord(0x102);
         int exeLength = ((readWord(0x104) - (bytesInLastBlock == 0 ? 0 : 1)) << 9)
-			+ bytesInLastBlock;
+            + bytesInLastBlock;
         int headerParagraphs = readWord(0x108);
         int headerLength = headerParagraphs << 4;
         if (exeLength > length || headerLength > length ||
@@ -157,12 +157,12 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
 
 void set_entry_registers(void)
 {
-	if (!f_asmout)
-		printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", cs(), ip, ds(), ss(), sp());
+    if (!f_asmout)
+        printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", cs(), ip, ds(), ss(), sp());
     setES(loadSegment - 0x10);
     setAX(0x0000);
     setBX(0x0000);
-    setCX(0x00FF);	// MUST BE 0x00FF as for big endian test below!!!!
+    setCX(0x00FF);  // MUST BE 0x00FF as for big endian test below!!!!
     setDX(segment);
     setBP(0x091C);
     setSI(0x0100);
@@ -214,7 +214,7 @@ char* dsdxparms(bool write, int bytes)
 }
 char *dsdx()
 {
-	return dsdxparms(false, 0x10000);
+    return dsdxparms(false, 0x10000);
 }
 int dosError(int e)
 {
@@ -482,6 +482,6 @@ void handle_intcall(int intno)
                         fprintf(stderr, "Unknown DOS/BIOS call: int 0x%02x, "
                             "ah = 0x%02x", intno, (unsigned)ah());
                         runtimeError("");
-						break;
+                        break;
                 }
 }

@@ -34,8 +34,8 @@ int aluOperation;
 bool running = false;
 int oCycle;
 
-bool f_disasm = 1;		/* do disassembly */
-bool f_asmout = 0;		/* output gnu as compatible input */
+bool f_disasm = 1;      /* do disassembly */
+bool f_asmout = 0;      /* output gnu as compatible input */
 
 char *getsymbol(int seg, int offset)
 {
@@ -120,7 +120,7 @@ Word readWordSeg(Word offset, int seg)
 }
 Word readWord(Word offset)
 {
-	return readWordSeg(offset, -1);
+    return readWordSeg(offset, -1);
 }
 Word readwb(Word offset, int seg)
 {
@@ -268,10 +268,10 @@ void push(Word value)
     writeWord(value, sp(), SS);
 }
 Word pop() {
-	Word r = readWordSeg(sp(), SS);
-	setSP(sp() + 2);
-	o('}');
-	return r;
+    Word r = readWordSeg(sp(), SS);
+    setSP(sp() + 2);
+    o('}');
+    return r;
 }
 void setCA() { setCF(true); setAF(true); }
 void doAF() { setAF(((data ^ source ^ destination) & 0x10) != 0); }
@@ -557,23 +557,23 @@ void emulator(void)
             case 0x68: case 0x69: case 0x6a: case 0x6b:
             case 0x6c: case 0x6d: case 0x6e: case 0x6f:
             case 0xc0: case 0xc1: case 0xc8: case 0xc9:  // invalid
-			case 0xf1:
+            case 0xf1:
             case 0xd8: case 0xd9: case 0xda: case 0xdb:
             case 0xdc: case 0xdd: case 0xde: case 0xdf:  // escape
-			case 0x0f:  // POP CS
+            case 0x0f:  // POP CS
             case 0x9b:  // WAIT
-			case 0xf0:  // LOCK
-			case 0xf4:  // HLT
+            case 0xf0:  // LOCK
+            case 0xf4:  // HLT
                 fprintf(stderr, "Invalid opcode %02x", opcode);
                 runtimeError("");
                 break;
             case 0xe4: case 0xe5: case 0xe6: case 0xe7:  // IN, OUT ib
-				(void)fetchByte();
-				//FIXME implement IN/OUT
-				break;
+                (void)fetchByte();
+                //FIXME implement IN/OUT
+                break;
             case 0xec: case 0xed: case 0xee: case 0xef:  // IN, OUT dx
-				//FIXME implement IN/OUT
-				break;
+                //FIXME implement IN/OUT
+                break;
             case 0x70: case 0x71: case 0x72: case 0x73:
             case 0x74: case 0x75: case 0x76: case 0x77:
             case 0x78: case 0x79: case 0x7a: case 0x7b:
@@ -767,15 +767,15 @@ void emulator(void)
                 o('m');
                 break;
             case 0xcc:  // INT 3
-				handle_intcall(3);
-				break;
+                handle_intcall(3);
+                break;
             case 0xcd:
-				handle_intcall(fetchByte());
+                handle_intcall(fetchByte());
                 o('$');
                 break;
-			case 0xce:  // INTO
-				handle_intcall(4);
-				break;
+            case 0xce:  // INTO
+                handle_intcall(4);
+                break;
             case 0xcf:  // IRET
                 o('I');
                 doJump(pop());
@@ -1091,10 +1091,10 @@ int main(int argc, char* argv[])
     if (fseek(fp, 0, SEEK_SET) != 0)
         error("seeking");
 #if ELKS
-	loadSegment = 0x1000 - 2;
+    loadSegment = 0x1000 - 2;
 #endif
 #if MSDOS
-	loadSegment = 0x0212;
+    loadSegment = 0x0212;
 #endif
     int loadOffset = loadSegment << 4;
     if (length > 0x100000 - loadOffset)
@@ -1103,14 +1103,14 @@ int main(int argc, char* argv[])
         error("reading");
     fclose(fp);
 
-	load_executable(fp, length, argc, argv);
-	load_bios_irqs();
-	set_entry_registers();
+    load_executable(fp, length, argc, argv);
+    load_bios_irqs();
+    set_entry_registers();
 
-#ifdef __APPLE__	/* macOS stdio drops characters! */
+#ifdef __APPLE__    /* macOS stdio drops characters! */
     static char buf[1];
     setvbuf(stdout, buf, _IOFBF, sizeof(buf));
 #endif
 
-	emulator();
+    emulator();
 }

@@ -14,21 +14,18 @@
 #include "sim.h"
 #include "disasm.h"
 
+/* emulator globals */
 Word registers[12];
 Byte* byteRegisters[8];
-Word flags;
+static Word flags;
 Word ip;
-Byte* ram;
-
 Byte opcode;
 int segment;
-Word loadSegment;
-const char* filename;
-DWord stackLow;
-int length;  // FIXME remove
+bool repeating;
 int ios;
+Byte ram[RAMSIZE];
 
-static Byte* initialized;
+static Byte initialized[RAMSIZE / 8];
 static bool useMemory;
 static Word address;
 static Byte modRM;
@@ -38,35 +35,43 @@ static DWord data;
 static DWord destination;
 static DWord source;
 static int rep;
-static bool repeating;
 static Word savedIP;
 static Word savedCS;
 static int segmentOverride;
 static Word residue;
 static int aluOperation;
 static bool running;
-//static int oCycle;
+static bool prefix;
 
 int initMachine(void)
 {
-    ram = (Byte*)alloc(0x100000);
-    initialized = (Byte*)alloc(0x20000);
-    memset(ram, 0, 0x100000);
-    memset(initialized, 0, 0x20000);
+    memset(ram, 0, RAMSIZE);
+    memset(initialized, 0, RAMSIZE / 8);
 
     segment = 0;
-    repeating = false;
     segmentOverride = -1;
     running = false;
+
+    setCX(0x00FF);      /* must be 0x00FF as for big endian test below */
+    Byte* byteData = (Byte*)&registers[0];
+    int bigEndian = (byteData[2] == 0 ? 1 : 0);
+    int byteNumbers[8] = {0, 2, 4, 6, 1, 3, 5, 7};
+    for (int i = 0 ; i < 8; ++i)
+        byteRegisters[i] = &byteData[byteNumbers[i] ^ bigEndian];
 
     return 0;
 }
 
+void initExecute(void)
+{
+    running = true;
+    prefix = false;
+    repeating = false;
+}
+
 DWord physicalAddress(Word offset, int seg, bool write)
 {
-    ++ios;
-    if (ios == 0)
-        runtimeError("Cycle counter overflowed.");
+    ios++;
     if (seg == -1) {
         seg = segment;
         if (segmentOverride != -1)
@@ -149,11 +154,13 @@ static void jumpShort(Byte data, bool jump)
     if (jump)
         doJump(ip + signExtend(data));
 }
-void setAF(bool af) { flags = (flags & ~0x10) | (af ? 0x10 : 0); }
-void clearCA() { setCF(false); setAF(false); }
-void setOF(bool of) { flags = (flags & ~0x800) | (of ? 0x800 : 0); }
-void clearCAO() { clearCA(); setOF(false); }
-void setPF()
+void setFlags(Word w) { flags = w; }
+void setCF(bool cf) { flags = (flags & ~1) | (cf ? 1 : 0); }
+static void setAF(bool af) { flags = (flags & ~0x10) | (af ? 0x10 : 0); }
+static void clearCA() { setCF(false); setAF(false); }
+static void setOF(bool of) { flags = (flags & ~0x800) | (of ? 0x800 : 0); }
+static void clearCAO() { clearCA(); setOF(false); }
+static void setPF()
 {
     static Byte table[0x100] = {
         4, 0, 0, 4, 0, 4, 4, 0, 0, 4, 4, 0, 4, 0, 0, 4,
@@ -174,17 +181,17 @@ void setPF()
         4, 0, 0, 4, 0, 4, 4, 0, 0, 4, 4, 0, 4, 0, 0, 4};
     flags = (flags & ~4) | table[data & 0xff];
 }
-void setZF()
+static void setZF()
 {
     flags = (flags & ~0x40) |
         ((data & (!wordSize ? 0xff : 0xffff)) == 0 ? 0x40 : 0);
 }
-void setSF()
+static void setSF()
 {
     flags = (flags & ~0x80) |
         ((data & (!wordSize ? 0x80 : 0x8000)) != 0 ? 0x80 : 0);
 }
-void setPZS() { setPF(); setZF(); setSF(); }
+static void setPZS() { setPF(); setZF(); setSF(); }
 static void bitwise(Word value) { data = value; clearCAO(); setPZS(); }
 static void test(Word d, Word s)
 {
@@ -416,37 +423,25 @@ static Word incdec(bool decrement)
     return data;
 }
 
-void emulator(void)
+/* execute a single repetition of instruction */
+void ExecuteInstruction(void)
 {
-    Byte* byteData = (Byte*)&registers[0];
-    int bigEndian = (byteData[2] == 0 ? 1 : 0);
-    int byteNumbers[8] = {0, 2, 4, 6, 1, 3, 5, 7};
-    for (int i = 0 ; i < 8; ++i)
-        byteRegisters[i] = &byteData[byteNumbers[i] ^ bigEndian];
-
-    running = true;
-    bool prefix = false;
-    for (int i = 0; i < 1000000000; ++i) {
-        if (!repeating) {
-            if (f_disasm) {
-                if (!f_asmout) printf("%04hx:%04hx  ", cs(), ip);
-                disasm(cs(), ip, nextbyte_mem, ds());
-            }
-            if (!prefix) {
-                segmentOverride = -1;
-                rep = 0;
-            }
-            prefix = false;
-            opcode = fetchByte();
+    if (!repeating) {
+        if (!prefix) {
+            segmentOverride = -1;
+            rep = 0;
         }
-        if (rep != 0 && (opcode < 0xa4 || opcode >= 0xb0 || opcode == 0xa8 ||
-            opcode == 0xa9))
-            runtimeError("REP prefix with non-string instruction");
-        wordSize = ((opcode & 1) != 0);
-        sourceIsRM = ((opcode & 2) != 0);
-        int operation = (opcode >> 3) & 7;
-        bool jump;
-        switch (opcode) {
+        prefix = false;
+        opcode = fetchByte();
+    }
+    if (rep != 0 && (opcode < 0xa4 || opcode >= 0xb0 || opcode == 0xa8 || opcode == 0xa9))
+        runtimeError("REP prefix with non-string instruction");
+    wordSize = ((opcode & 1) != 0);
+    sourceIsRM = ((opcode & 2) != 0);
+    int operation = (opcode >> 3) & 7;
+    bool jump;
+
+    switch (opcode) {
             case 0x00: case 0x01: case 0x02: case 0x03:
             case 0x08: case 0x09: case 0x0a: case 0x0b:
             case 0x10: case 0x11: case 0x12: case 0x13:
@@ -1050,7 +1045,5 @@ void emulator(void)
                         break;
                 }
                 break;
-        }
     }
-    runtimeError("Timed out");
 }

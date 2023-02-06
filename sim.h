@@ -6,7 +6,7 @@ typedef int bool;
 enum { false = 0, true };
 
 /* loadexec-xxx.c entry points */
-void load_executable(FILE *fp, int length, int argc, char **argv);
+void load_executable(FILE *fp, int size, int argc, char **argv, char **envp);
 void load_bios_irqs(void);
 void set_entry_registers(void);
 void handle_intcall(int intno);
@@ -14,27 +14,31 @@ void handle_intcall(int intno);
 /* segment registers after 8 general registers */
 enum { ES = 0, CS, SS, DS };
 
-/* global simulator vars and functions */
+/* emulator globals */
+#define RAMSIZE     0x100000    /* 1M RAM */
 extern Word registers[12];
 extern Byte* byteRegisters[8];
-extern Word flags;
+//extern Word flags;
 extern Word ip;
-extern Byte* ram;
-
 extern Byte opcode;
 extern int segment;
-extern Word loadSegment;
-extern const char* filename;
-extern DWord stackLow;
-extern int length;  // FIXME remove
+extern bool repeating;
 extern int ios;
+extern Byte ram[RAMSIZE];
 
-extern int f_disasm;      /* do disassembly */
-extern int f_asmout;      /* output gnu as compatible input */
+/* loader globals */
+extern const char* filename;
+extern int filesize;
+extern Word loadSegment;
+extern DWord stackLow;
+
+extern int f_disasm;        /* do disassembly */
+extern int f_asmout;        /* output gnu as compatible input */
+extern int f_showreps;      /* show repeating instructions */
 
 int initMachine(void);
-void *alloc(size_t bytes);
-void emulator(void);
+void initExecute(void);
+void ExecuteInstruction(void);
 void divideOverflow(void);
 void runtimeError(const char* message);
 
@@ -89,4 +93,5 @@ static inline void setAH(Byte value) { *byteRegisters[4] = value; }
 static inline void setCH(Byte value) { *byteRegisters[5] = value; }
 static inline void setDH(Byte value) { *byteRegisters[6] = value; }
 static inline void setBH(Byte value) { *byteRegisters[7] = value; }
-static inline void setCF(bool cf) { flags = (flags & ~1) | (cf ? 1 : 0); }
+void setFlags(Word w);
+void setCF(bool cf);

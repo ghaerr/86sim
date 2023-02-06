@@ -8,6 +8,12 @@
 #include <sys/stat.h>
 #include "sim.h"
 
+/* loader globals */
+const char* filename;
+int filesize;
+Word loadSegment;
+DWord stackLow;
+
 static char* pathBuffers[2];
 static int* fileDescriptors;
 static int fileDescriptorCount = 6;
@@ -64,6 +70,16 @@ static void write_environ(int argc, char **argv, char **envp)
     writeByte(13, i, ES);
 }
 
+static void* alloc(size_t bytes)
+{
+    void* r = malloc(bytes);
+    if (r == 0) {
+        fprintf(stderr, "Out of memory\n");
+        exit(1);
+    }
+    return r;
+}
+
 static void init()
 {
     pathBuffers[0] = (char*)alloc(0x10000);
@@ -79,21 +95,21 @@ static void init()
 
 }
 
-void load_executable(FILE *fp, int length, int argc, char **argv)
+void load_executable(FILE *fp, int size, int argc, char **argv, char **envp)
 {
     init();
 
     ip = 0x100;
-    flags = 2;
-    write_environ(argc, argv, 0);
-    for (int i = 0; i < length; ++i) {
+    setFlags(0x0002);
+    write_environ(argc, argv, envp);
+    for (int i = 0; i < size; ++i) {
         setES(loadSegment + (i >> 4));
         physicalAddress(i & 15, 0, true);
     }
     for (int i = 0; i < 4; ++i)
         registers[8 + i] = loadSegment - 0x10;
-    if (length >= 2 && readWord(0x100) == 0x5a4d) {  // .exe file?
-        if (length < 0x21) {
+    if (size >= 2 && readWord(0x100) == 0x5a4d) {  // .exe file?
+        if (size < 0x21) {
             fprintf(stderr, "%s is too short to be an .exe file\n", filename);
             exit(1);
         }
@@ -102,7 +118,7 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
             + bytesInLastBlock;
         int headerParagraphs = readWord(0x108);
         int headerLength = headerParagraphs << 4;
-        if (exeLength > length || headerLength > length ||
+        if (exeLength > size || headerLength > size ||
             headerLength > exeLength) {
             fprintf(stderr, "%s is corrupt\n", filename);
             exit(1);
@@ -127,12 +143,12 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
         setCS(readWord(0x116) + imageSegment);
     }
     else {
-        if (length > 0xff00) {
+        if (size > 0xff00) {
             fprintf(stderr, "%s is too long to be a .com file\n", filename);
             exit(1);
         }
         setSP(0xFFFE);
-        stackLow = ((DWord)loadSegment << 4) + length;
+        stackLow = ((DWord)loadSegment << 4) + size;
     }
     // Some testcases copy uninitialized stack data, so mark as initialized
     // any locations that could possibly be stack.
@@ -162,7 +178,7 @@ void set_entry_registers(void)
     setES(loadSegment - 0x10);
     setAX(0x0000);
     setBX(0x0000);
-    setCX(0x00FF);  // MUST BE 0x00FF as for big endian test below!!!!
+    setCX(0x0000);
     setDX(segment);
     setBP(0x091C);
     setSI(0x0100);
@@ -446,7 +462,7 @@ void handle_intcall(int intno)
                         runtimeError("");
                         break;
                     case 0x214c:
-                        printf("\n*** Bytes: %i\n", length);
+                        printf("\n*** Bytes: %i\n", filesize);
                         printf("*** Cycles: %i\n", ios);
                         printf("*** EXIT code %i\n", al());
                         exit(0);

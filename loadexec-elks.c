@@ -8,6 +8,12 @@
 #include <sys/stat.h>
 #include "sim.h"
 
+/* loader globals */
+const char* filename;
+int filesize;
+Word loadSegment;
+DWord stackLow;
+
 static unsigned int sysbrk;
 
 #if 0
@@ -162,11 +168,9 @@ static void write_environ(int argc, char **argv, char **envp)
     writeWord(0, pip, SS);  pip += 2;
 }
 
-void load_executable(FILE *fp, int length, int argc, char **argv)
+void load_executable(FILE *fp, int length, int argc, char **argv, char **envp)
 {
-    extern char **environ;
-
-    flags = 0x3202;
+    setFlags(0x3202);
     // FIXME check hlen < 0x20, unset hdr access after, check tseg & 15
     for (int i = 0; i < 0x20; ++i) {
         setES(loadSegment + (i >> 4));
@@ -197,7 +201,7 @@ void load_executable(FILE *fp, int length, int argc, char **argv)
     int stack = sysbrk + 4096;
     //int stack = 0xfffe;
     setSP(stack);
-    write_environ(argc, argv+1, environ);
+    write_environ(argc, argv+1, envp);
     //hexdump(sp(), &ram[physicalAddress(sp(), 2, false)], stack-sp(), 0);
     //int extra = stack - sp();
     if (!f_asmout)
@@ -215,7 +219,7 @@ void set_entry_registers(void)
     setES(ds());        // ES = DS
     setAX(0x0000);
     setBX(0x0000);
-    setCX(0x00FF);  // MUST BE 0x00FF as for big endian test below!!!!
+    setCX(0x0000);
     setDX(0x0000);
     setBP(0x0000);
     setSI(0x0000);

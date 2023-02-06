@@ -16,6 +16,7 @@
 
 bool f_disasm = 1;      /* do disassembly */
 bool f_asmout = 0;      /* output gnu as compatible input */
+bool f_showreps = 1;    /* show repeating instructions */
 
 char *getsymbol(int seg, int offset)
 {
@@ -35,7 +36,7 @@ char *getsegsymbol(int seg)
 
 int nextbyte_mem(int cs, int ip)
 {
-    int b = readByte(ip, 1);     // seg =1 for CS
+    int b = readByte(ip, CS);     /* seg =1 for CS */
     if (!f_asmout) printf("%02x ", b);
     else f_outcol = 0;
     return b;
@@ -43,28 +44,25 @@ int nextbyte_mem(int cs, int ip)
 
 void error(const char* operation)
 {
-    fprintf(stderr, "Error %s file %s: %s\n", operation, filename,
-        strerror(errno));
+    fprintf(stderr, "Error %s file %s: %s\n", operation, filename, strerror(errno));
     exit(1);
 }
+
 void runtimeError(const char* message)
 {
     fprintf(stderr, "%s\nCS:IP = %04x:%04x\n", message, cs(), ip);
     exit(1);
 }
-void* alloc(size_t bytes)
+
+void divideOverflow()
 {
-    void* r = malloc(bytes);
-    if (r == 0) {
-        fprintf(stderr, "Out of memory\n");
-        exit(1);
-    }
-    return r;
+    runtimeError("Divide overflow");
 }
-void divideOverflow() { runtimeError("Divide overflow"); }
 
 int main(int argc, char* argv[])
 {
+    extern char **environ;
+
     if (argc < 2) {
         printf("Usage: %s <program name>\n", argv[0]);
         exit(0);
@@ -77,8 +75,8 @@ int main(int argc, char* argv[])
         error("opening");
     if (fseek(fp, 0, SEEK_END) != 0)
         error("seeking");
-    length = ftell(fp);
-    if (length == -1)
+    filesize = ftell(fp);
+    if (filesize == -1)
         error("telling");
     if (fseek(fp, 0, SEEK_SET) != 0)
         error("seeking");
@@ -89,13 +87,13 @@ int main(int argc, char* argv[])
     loadSegment = 0x0212;
 #endif
     int loadOffset = loadSegment << 4;
-    if (length > 0x100000 - loadOffset)
-        length = 0x100000 - loadOffset;
-    if (fread(&ram[loadOffset], length, 1, fp) != 1)
+    if (filesize > 0x100000 - loadOffset)
+        filesize = 0x100000 - loadOffset;
+    if (fread(&ram[loadOffset], filesize, 1, fp) != 1)
         error("reading");
     fclose(fp);
 
-    load_executable(fp, length, argc, argv);
+    load_executable(fp, filesize, argc, argv, environ);
     load_bios_irqs();
     set_entry_registers();
 
@@ -104,5 +102,15 @@ int main(int argc, char* argv[])
     setvbuf(stdout, buf, _IOFBF, sizeof(buf));
 #endif
 
-    emulator();
+    initExecute();
+    Word lastIP = ip;
+    for (;;) {
+        if (f_disasm && (f_showreps || !repeating)) {
+            if (!f_asmout) printf("%04hx:%04hx  ", cs(), lastIP);
+            disasm(cs(), lastIP, nextbyte_mem, ds());
+        }
+        ExecuteInstruction();
+        if (!repeating)
+            lastIP = ip;
+    }
 }

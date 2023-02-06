@@ -6,7 +6,7 @@ CFLAGS=-Wall -O3
 all: sim-dos sim-elks test testdos
 
 clean:
-	-rm sim-dos sim-elks
+	-rm sim-dos sim-elks opcodes
 
 test: sim-elks
 	./sim-elks $(ELKS)/target/bin/banner ELKS Emulator
@@ -23,7 +23,10 @@ testdos: sim-dos
 	@#./sim-dos hexdump.exe
 
 sim-dos: sim.c 8086.c disasm.c loadexec-dos.c
-	$(CC) $(CFLAGS) -DMSDOS=1 -o sim-dos $^
+	$(CC) $(CFLAGS) -DMSDOS=1 -o $@ $^
 
 sim-elks: sim.c 8086.c disasm.c loadexec-elks.c
-	$(CC) $(CFLAGS) -DELKS=1 -o sim-elks $^
+	$(CC) $(CFLAGS) -DELKS=1 -o $@ $^
+
+opcodes: opcodes.S
+	ia16-elf-gcc -melks -ffreestanding -nostdlib -o $@ $^

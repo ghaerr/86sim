@@ -9,11 +9,11 @@
 #include "sim.h"
 
 /* loader globals */
-const char* filename;
-int filesize;
 Word loadSegment;
 DWord stackLow;
 
+static const char* filename;
+static int filesize;
 static char* pathBuffers[2];
 static int* fileDescriptors;
 static int fileDescriptorCount = 6;
@@ -95,21 +95,49 @@ static void init()
 
 }
 
-void load_executable(FILE *fp, int size, int argc, char **argv, char **envp)
+static void error(const char* operation)
+{
+    fprintf(stderr, "Error %s file %s: %s\n", operation, filename, strerror(errno));
+    exit(1);
+}
+
+void load_executable(const char *path, int argc, char **argv, char **envp)
 {
     init();
+
+    filename = path;
+    FILE* fp = fopen(filename, "rb");
+    if (fp == 0)
+        error("opening");
+    if (fseek(fp, 0, SEEK_END) != 0)
+        error("seeking");
+    int filesize = ftell(fp);
+    if (filesize == -1)
+        error("telling");
+    if (fseek(fp, 0, SEEK_SET) != 0)
+        error("seeking");
+
+    loadSegment = 0x0212;
+    int loadOffset = loadSegment << 4;
+    if (filesize > 0x100000 - loadOffset)
+        filesize = 0x100000 - loadOffset;
+    if (fread(&ram[loadOffset], filesize, 1, fp) != 1)
+        error("reading");
+    fclose(fp);
 
     ip = 0x100;
     setFlags(0x0002);
     write_environ(argc, argv, envp);
-    for (int i = 0; i < size; ++i) {
+    for (int i = 0; i < filesize; ++i) {
         setES(loadSegment + (i >> 4));
-        physicalAddress(i & 15, 0, true);
+        physicalAddress(i & 15, ES, true);
     }
-    for (int i = 0; i < 4; ++i)
-        registers[8 + i] = loadSegment - 0x10;
-    if (size >= 2 && readWord(0x100) == 0x5a4d) {  // .exe file?
-        if (size < 0x21) {
+    setES(loadSegment - 0x10);
+    setCS(loadSegment - 0x10);
+    setSS(loadSegment - 0x10);
+    setDS(loadSegment - 0x10);
+    if (filesize >= 2 && readWord(0x100) == 0x5a4d) {  // .exe file?
+        if (filesize < 0x21) {
             fprintf(stderr, "%s is too short to be an .exe file\n", filename);
             exit(1);
         }
@@ -118,7 +146,7 @@ void load_executable(FILE *fp, int size, int argc, char **argv, char **envp)
             + bytesInLastBlock;
         int headerParagraphs = readWord(0x108);
         int headerLength = headerParagraphs << 4;
-        if (exeLength > size || headerLength > size ||
+        if (exeLength > filesize || headerLength > filesize ||
             headerLength > exeLength) {
             fprintf(stderr, "%s is corrupt\n", filename);
             exit(1);
@@ -143,12 +171,12 @@ void load_executable(FILE *fp, int size, int argc, char **argv, char **envp)
         setCS(readWord(0x116) + imageSegment);
     }
     else {
-        if (size > 0xff00) {
+        if (filesize > 0xff00) {
             fprintf(stderr, "%s is too long to be a .com file\n", filename);
             exit(1);
         }
         setSP(0xFFFE);
-        stackLow = ((DWord)loadSegment << 4) + size;
+        stackLow = ((DWord)loadSegment << 4) + filesize;
     }
     // Some testcases copy uninitialized stack data, so mark as initialized
     // any locations that could possibly be stack.
@@ -236,8 +264,7 @@ int dosError(int e)
 {
     if (e == ENOENT)
         return 2;
-    fprintf(stderr, "%s\n", strerror(e));
-    runtimeError("");
+    runtimeError("%s\n", strerror(e));
     return 0;
 }
 int getDescriptor()
@@ -408,10 +435,8 @@ void handle_intcall(int intno)
                         }
                         break;
                     case 0x2144:
-                        if (al() != 0) {
-                            fprintf(stderr, "Unknown IOCTL 0x%02x", al());
-                            runtimeError("");
-                        }
+                        if (al() != 0)
+                            runtimeError("Unknown IOCTL 0x%02x", al());
                         fileDescriptor = fileDescriptors[bx()];
                         if (fileDescriptor == -1) {
                             setCF(true);
@@ -450,16 +475,15 @@ void handle_intcall(int intno)
                         // segment end
                         if (es() == loadSegment - 0x10) {
                             DWord memEnd = (DWord)(es() + bx()) << 4;
-                            if (physicalAddress(ip, 1, false) < memEnd &&
-                                physicalAddress(sp() - 1, 2, true) < memEnd) {
+                            if (physicalAddress(ip, CS, false) < memEnd &&
+                                physicalAddress(sp() - 1, SS, true) < memEnd) {
                                 setCF(false);
                                 break;
                             }
                         }
-                        fprintf(stderr, "Bad attempt to resize DOS memory "
+                        runtimeError("Bad attempt to resize DOS memory "
                             "block: int 0x21, ah = 0x4a, bx = 0x%04x, "
                             "es = 0x%04x", (unsigned)bx(), (unsigned)es());
-                        runtimeError("");
                         break;
                     case 0x214c:
                         printf("\n*** Bytes: %i\n", filesize);
@@ -489,15 +513,13 @@ void handle_intcall(int intno)
                                 setCF(false);
                                 break;
                             default:
-                                fprintf(stderr, "Unknown DOS call: int 0x21, "
+                                runtimeError("Unknown DOS call: int 0x21, "
                                     "ax = 0x%04x", (unsigned)ax());
-                                runtimeError("");
                         }
                         break;
                     default:
-                        fprintf(stderr, "Unknown DOS/BIOS call: int 0x%02x, "
+                        runtimeError("Unknown DOS/BIOS call: int 0x%02x, "
                             "ah = 0x%02x", intno, (unsigned)ah());
-                        runtimeError("");
                         break;
                 }
 }

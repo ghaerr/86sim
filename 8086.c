@@ -546,8 +546,7 @@ void ExecuteInstruction(void)
             case 0x9b:  // WAIT
             case 0xf0:  // LOCK
             case 0xf4:  // HLT
-                fprintf(stderr, "Invalid opcode %02x", opcode);
-                runtimeError("");
+                runtimeError("Invalid opcode %02x", opcode);
                 break;
             case 0xe4: case 0xe5: case 0xe6: case 0xe7:  // IN, OUT ib
                 (void)fetchByte();
@@ -1012,9 +1011,7 @@ void ExecuteInstruction(void)
                 ea();
                 if ((!wordSize && modRMReg() >= 2 && modRMReg() <= 6) ||
                     modRMReg() == 7) {
-                    fprintf(stderr, "Invalid instruction %02x %02x", opcode,
-                        modRM);
-                    runtimeError("");
+                        runtimeError("Invalid instruction %02x %02x", opcode, modRM);
                 }
                 switch (modRMReg()) {
                     case 0: case 1:  // incdec rmv

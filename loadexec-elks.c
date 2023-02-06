@@ -9,8 +9,7 @@
 #include "sim.h"
 
 /* loader globals */
-const char* filename;
-int filesize;
+static const char* filename;
 Word loadSegment;
 DWord stackLow;
 
@@ -168,17 +167,44 @@ static void write_environ(int argc, char **argv, char **envp)
     writeWord(0, pip, SS);  pip += 2;
 }
 
-void load_executable(FILE *fp, int length, int argc, char **argv, char **envp)
+static void error(const char* operation)
 {
+    fprintf(stderr, "Error %s file %s: %s\n", operation, filename, strerror(errno));
+    exit(1);
+}
+
+void load_executable(const char *path, int argc, char **argv, char **envp)
+{
+    filename = path;
+    FILE* fp = fopen(filename, "rb");
+    if (fp == 0)
+        error("opening");
+    if (fseek(fp, 0, SEEK_END) != 0)
+        error("seeking");
+    int filesize = ftell(fp);
+    if (filesize == -1)
+        error("telling");
+    if (fseek(fp, 0, SEEK_SET) != 0)
+        error("seeking");
+
+    loadSegment = 0x1000 - 2;
+    int loadOffset = loadSegment << 4;
+    if (filesize > 0x100000 - loadOffset)
+        filesize = 0x100000 - loadOffset;
+    if (fread(&ram[loadOffset], filesize, 1, fp) != 1)
+        error("reading");
+    fclose(fp);
+
     setFlags(0x3202);
     // FIXME check hlen < 0x20, unset hdr access after, check tseg & 15
     for (int i = 0; i < 0x20; ++i) {
         setES(loadSegment + (i >> 4));
-        physicalAddress(i & 15, 0, true);
+        physicalAddress(i & 15, ES, true);
     }
-    // 8 = ES, 9 = CS, 10 = SS, 11 = DS
-    for (int i = 0; i < 4; ++i)
-        registers[8 + i] = loadSegment;
+    setES(loadSegment);
+    setCS(loadSegment);
+    setSS(loadSegment);
+    setDS(loadSegment);
     int hlen = readWord(0x04);
     int version = readWord(0x06);
     int tseg = readWord(0x08);
@@ -190,25 +216,25 @@ void load_executable(FILE *fp, int length, int argc, char **argv, char **envp)
     if (!f_asmout)
         printf("hlen %x version %x tseg %x dseg %x bseg %x entry %x chmem %x minstack %x\n",
         hlen, version, tseg, dseg, bseg, entry, chmem, minstack);
-    for (int i = hlen; i < length+bseg+8192; ++i) {
+    for (int i = hlen; i < filesize+bseg+8192; ++i) {
         setES(loadSegment + (i >> 4));
-        physicalAddress(i & 15, 0, true); // ES
+        physicalAddress(i & 15, ES, true);
     }
     setCS(loadSegment + (hlen>>4));
     setSS(loadSegment + (hlen>>4) + ((tseg + 15) >> 4));
-    setDS(ss());                // DS = SS
+    setDS(ss());                /* DS = SS */
     sysbrk = dseg + bseg + 4096;
     int stack = sysbrk + 4096;
     //int stack = 0xfffe;
     setSP(stack);
     write_environ(argc, argv+1, envp);
-    //hexdump(sp(), &ram[physicalAddress(sp(), 2, false)], stack-sp(), 0);
+    //hexdump(sp(), &ram[physicalAddress(sp(), SS, false)], stack-sp(), 0);
     //int extra = stack - sp();
     if (!f_asmout)
         printf("Text %x Data %x Stack %x\n", tseg, dseg+bseg+4096, 4096);
     ip = entry;
 
-    for (int i=dseg; i<dseg+bseg; i++)  // clear BSS
+    for (int i=dseg; i<dseg+bseg; i++)  /* clear BSS */
         writeByte(0, i, DS);
 }
 
@@ -216,7 +242,7 @@ void set_entry_registers(void)
 {
     if (!f_asmout)
         printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", cs(), ip, ds(), ss(), sp());
-    setES(ds());        // ES = DS
+    setES(ds());        /* ES = DS */
     setAX(0x0000);
     setBX(0x0000);
     setCX(0x0000);
@@ -232,37 +258,39 @@ void load_bios_irqs(void)
 
 void handle_intcall(int intno)
 {
-    unsigned int v = (intno << 8) | ax();
+    unsigned int v;
     unsigned char *p;
 
+    if (intno != 0x80)
+        runtimeError("Unknown INT 0x%02x", intno);
     //fflush(stdout);
-    switch (v) {
-    // ARGS: BX, CX, DX, DI, SI
-    case 0x8001:        // exit
+    /* syscall args: BX, CX, DX, DI, SI */
+    switch (ax()) {
+    case 1:             // exit
         printf("EXIT %d\n", bx());
         exit(bx());
-    case 0x8004:        // write
-        p = &ram[physicalAddress(cx(), 2, false)]; // SS
+    case 4:             // write
+        p = &ram[physicalAddress(cx(), SS, false)];
         if (f_asmout) v = dx();
         else v = write(bx(), p, dx());
         setAX(v);
         break;
-    case 0x8005:        // open
-        p = &ram[physicalAddress(bx(), 2, false)]; // SS
+    case 5:             // open
+        p = &ram[physicalAddress(bx(), SS, false)];
         printf("open '%s',%x,%o\n", p, cx(), dx());
         setAX(-2);
         break;
-    case 0x8036:        // ioctl
+    case 54:            // ioctl
         if (!f_asmout)
-        printf("IOCTL %d,%c%02d,%x\n", bx(), cx()>>8, cx()&0xff, dx());
+            printf("IOCTL %d,%c%02d,%x\n", bx(), cx()>>8, cx()&0xff, dx());
         setAX(bx() < 3? 0: -1);
         break;
-    case 0x8000+17:     // brk
+    case 17:            // brk
         printf("BRK old %x new %x\n", sysbrk, bx());
         sysbrk = bx();
         setAX(0);
         break;
-    case 0x8000+69:     // sbrk
+    case 69:            // sbrk
         printf("SBRK %d old %x new %x SP %x\n", bx(), sysbrk, sysbrk+bx(), sp());
         v = sysbrk;
         sysbrk += bx();
@@ -270,8 +298,8 @@ void handle_intcall(int intno)
         setAX(0);
         break;
     default:
-        fprintf(stderr, "Unknown SYS call: int 0x%02x, "
-        "AX %x(%d) BX %x CX %x DX %x\n", intno, ax(), ax(), bx(), cx(), dx());
+        fprintf(stderr, "Unknown SYS call: AX %04x(%d) BX %04x CX %04x DX %04x\n",
+            ax(), ax(), bx(), cx(), dx());
         //runtimeError("");
         setAX(0xffff);
         break;

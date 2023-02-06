@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdarg.h>
 #include "sim.h"
 #include "disasm.h"
 
@@ -36,21 +37,19 @@ char *getsegsymbol(int seg)
 
 int nextbyte_mem(int cs, int ip)
 {
-    int b = readByte(ip, CS);     /* seg =1 for CS */
+    int b = readByte(ip, CS);
     if (!f_asmout) printf("%02x ", b);
     else f_outcol = 0;
     return b;
 }
 
-void error(const char* operation)
+void runtimeError(const char *msg, ...)
 {
-    fprintf(stderr, "Error %s file %s: %s\n", operation, filename, strerror(errno));
-    exit(1);
-}
-
-void runtimeError(const char* message)
-{
-    fprintf(stderr, "%s\nCS:IP = %04x:%04x\n", message, cs(), ip);
+    va_list args;
+    va_start(args, msg);
+    vfprintf(stderr, msg, args);
+    va_end(args);
+    fprintf(stderr, "\nCS:IP = %04x:%04x\n", cs(), ip);
     exit(1);
 }
 
@@ -68,32 +67,7 @@ int main(int argc, char* argv[])
         exit(0);
     }
     initMachine();
-
-    filename = argv[1];
-    FILE* fp = fopen(filename, "rb");
-    if (fp == 0)
-        error("opening");
-    if (fseek(fp, 0, SEEK_END) != 0)
-        error("seeking");
-    filesize = ftell(fp);
-    if (filesize == -1)
-        error("telling");
-    if (fseek(fp, 0, SEEK_SET) != 0)
-        error("seeking");
-#if ELKS
-    loadSegment = 0x1000 - 2;
-#endif
-#if MSDOS
-    loadSegment = 0x0212;
-#endif
-    int loadOffset = loadSegment << 4;
-    if (filesize > 0x100000 - loadOffset)
-        filesize = 0x100000 - loadOffset;
-    if (fread(&ram[loadOffset], filesize, 1, fp) != 1)
-        error("reading");
-    fclose(fp);
-
-    load_executable(fp, filesize, argc, argv, environ);
+    load_executable(argv[1], argc, argv, environ);
     load_bios_irqs();
     set_entry_registers();
 

@@ -6,7 +6,7 @@ typedef int bool;
 enum { false = 0, true };
 
 /* loadexec-xxx.c entry points */
-void load_executable(FILE *fp, int size, int argc, char **argv, char **envp);
+void load_executable(const char *filename, int argc, char **argv, char **envp);
 void load_bios_irqs(void);
 void set_entry_registers(void);
 void handle_intcall(int intno);
@@ -27,8 +27,6 @@ extern int ios;
 extern Byte ram[RAMSIZE];
 
 /* loader globals */
-extern const char* filename;
-extern int filesize;
 extern Word loadSegment;
 extern DWord stackLow;
 
@@ -40,7 +38,7 @@ int initMachine(void);
 void initExecute(void);
 void ExecuteInstruction(void);
 void divideOverflow(void);
-void runtimeError(const char* message);
+void runtimeError(const char *msg, ...);
 
 Byte readByte(Word offset, int seg);
 Word readWord(Word offset);

@@ -490,7 +490,8 @@ void ExecuteInstruction(void)
                 o("e%ZE"[segmentOverride]);
                 prefix = true;
                 break;
-            case 0x27: case 0x2f:  // DA
+            case 0x27:              // DAA
+            case 0x2f:              // DAS
                 if (af() || (al() & 0x0f) > 9) {
                     data = al() + (opcode == 0x27 ? 6 : -6);
                     setAL(data);
@@ -506,7 +507,8 @@ void ExecuteInstruction(void)
                 setPZS();
                 o(opcode == 0x27 ? 'y' : 'Y');
                 break;
-            case 0x37: case 0x3f:  // AA
+            case 0x37:              // AAA
+            case 0x3f:              // AAS
                 if (af() || (al() & 0xf) > 9) {
                     setAL(al() + (opcode == 0x37 ? 6 : -6));
                     setAH(ah() + (opcode == 0x37 ? 1 : -1));

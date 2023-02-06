@@ -22,8 +22,8 @@ testdos: sim-dos
 	./sim-dos test.exe
 	#./sim-dos hexdump.exe
 
-sim-dos: sim.c disasm.c loadexec-dos.c
+sim-dos: sim.c 8086.c disasm.c loadexec-dos.c
 	$(CC) $(CFLAGS) -DMSDOS=1 -o sim-dos $^
 
-sim-elks: sim.c disasm.c loadexec-elks.c
+sim-elks: sim.c 8086.c disasm.c loadexec-elks.c
 	$(CC) $(CFLAGS) -DELKS=1 -o sim-elks $^

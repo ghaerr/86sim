@@ -1,5 +1,5 @@
 /*
- * (Standalone) single-file tiny 8086 disassembler
+ * Tiny 8086 disassembler
  *
  * Jan 2022 Greg Haerr
  * Inspired by Andrew Jenner's 8086 simulator 86sim.cpp
@@ -28,17 +28,12 @@ static Word startDS;
 static Byte d_modRM;
 //static int segOver;
 
-/* user-defined external functions */
-//extern Byte readByte(Word offset, int seg);   /* read next instruction byte */
-
 static void decode();
 static int (*fetchbyte)(int, int);
 
 static Word d_fetchByte()
 {
     Byte b = fetchbyte(startCS, startIP++);
-    //Byte b = readByte(startIP++, 1);      /* for 86sim, seg =1 for CS */
-    //if (!f_asmout) printf("%02x ", b);
     f_outcol++;
     return b;
 }
@@ -50,7 +45,6 @@ int disasm(int cs, int ip, int (*nextbyte)(int, int), int ds)
     fetchbyte = nextbyte;
     startDS = ds;
     f_outcol = 0;
-    //if (!f_asmout) printf("%04hx:%04hx  ", cs, ip);
     decode();
     return startIP;
 }

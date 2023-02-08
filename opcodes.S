@@ -317,12 +317,12 @@ _start:
     push   0x8000
     push   0x8001
 
+#if 0
  // syscall exit
     mov     $1,%ax
     mov     $0,%bx
     int     $0x80
 
-#if 0
     push   $0x0000
     push   $0x7fff
     push   $0x8000

@@ -2,14 +2,7 @@
 typedef unsigned char Byte;
 typedef unsigned short int Word;
 typedef unsigned int DWord;
-typedef int bool;
 enum { false = 0, true };
-
-/* loadexec-xxx.c entry points */
-void load_executable(const char *filename, int argc, char **argv, char **envp);
-void load_bios_irqs(void);
-void set_entry_registers(void);
-void handle_intcall(int intno);
 
 /* segment registers after 8 general registers */
 enum { ES = 0, CS, SS, DS };
@@ -18,34 +11,33 @@ enum { ES = 0, CS, SS, DS };
 #define RAMSIZE     0x100000    /* 1M RAM */
 extern Word registers[12];
 extern Byte* byteRegisters[8];
-//extern Word flags;
-extern Word ip;
-extern Byte opcode;
-extern int segment;
-extern bool repeating;
-extern int ios;
 extern Byte ram[RAMSIZE];
 
 /* loader globals */
 extern Word loadSegment;
 extern DWord stackLow;
+/* loader entry points */
+void load_executable(const char *filename, int argc, char **argv, char **envp);
 
-extern int f_asmout;
-
+/* emulator operation */
 int initMachine(void);
 void initExecute(void);
 void ExecuteInstruction(void);
+int isRepeating(void);
+
+/* emulator callouts */
 void divideOverflow(void);
 void runtimeError(const char *msg, ...);
+void handle_intcall(int intno);
 
+/* memory access functions */
 Byte readByte(Word offset, int seg);
-Word readWord(Word offset);
 Word readWordSeg(Word offset, int seg);
 void writeByte(Byte value, Word offset, int seg);
 void writeWord(Word value, Word offset, int seg);
-DWord physicalAddress(Word offset, int seg, bool write);
+DWord physicalAddress(Word offset, int seg, int write);
 
-/* access functions */
+/* register access functions */
 static inline Word ax() { return registers[0]; }
 static inline Word cx() { return registers[1]; }
 static inline Word dx() { return registers[2]; }
@@ -58,7 +50,6 @@ static inline Word es() { return registers[8]; }
 static inline Word cs() { return registers[9]; }
 static inline Word ss() { return registers[10]; }
 static inline Word ds() { return registers[11]; }
-static inline Word rw() { return registers[opcode & 7]; }
 static inline Byte al() { return *byteRegisters[0]; }
 static inline Byte cl() { return *byteRegisters[1]; }
 static inline Byte dl() { return *byteRegisters[2]; }
@@ -79,8 +70,6 @@ static inline void setES(Word value) { registers[8] = value; }
 static inline void setCS(Word value) { registers[9] = value; }
 static inline void setSS(Word value) { registers[10] = value; }
 static inline void setDS(Word value) { registers[11] = value; }
-static inline void setRW(Word value) { registers[opcode & 7] = value; }
-static inline void setRB(Byte value) { *byteRegisters[opcode & 7] = value; }
 static inline void setAL(Byte value) { *byteRegisters[0] = value; }
 static inline void setCL(Byte value) { *byteRegisters[1] = value; }
 static inline void setDL(Byte value) { *byteRegisters[2] = value; }
@@ -89,5 +78,8 @@ static inline void setAH(Byte value) { *byteRegisters[4] = value; }
 static inline void setCH(Byte value) { *byteRegisters[5] = value; }
 static inline void setDH(Byte value) { *byteRegisters[6] = value; }
 static inline void setBH(Byte value) { *byteRegisters[7] = value; }
+Word getIP(void);
+void setIP(Word w);
 void setFlags(Word w);
-void setCF(bool cf);
+Word getFlags(void);
+void setCF(int cf);

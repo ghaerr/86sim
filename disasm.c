@@ -184,7 +184,7 @@ static void outs(struct dis *d, const char *str, int flags)
         d->s += sprintf(d->s, "    ");
     }
     if ((d->flags & fDisAsmSource) && !strcmp(str, "???")) {
-        d->s += sprintf(d->s, ".byte 0x%02x\n", opcode);
+        d->s += sprintf(d->s, ".byte 0x%02x", opcode);
         return;
     }
     d->col = strlen(str);

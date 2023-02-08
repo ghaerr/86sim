@@ -9,91 +9,12 @@
 #include "sim.h"
 
 /* loader globals */
-static const char* filename;
 Word loadSegment;
 DWord stackLow;
+int f_asmout;
 
+static const char* filename;
 static unsigned int sysbrk;
-
-#if 0
-/* hex dump library*/
-#define isprint(c) ((c) > ' ' && (c) <= '~')
-static int lastnum[16] = {-1};
-static int lastaddr = -1;
-
-static void printline(int address, int *num, char *chr, int count, int summary)
-{
-    int   j;
-
-    if (lastaddr >= 0)
-    {
-        for (j = 0; j < count; j++)
-            if (num[j] != lastnum[j])
-                break;
-        if (j == 16 && summary)
-        {
-            if (lastaddr + 16 == address)
-            {
-                printf("*\n");
-            }
-            return;
-        }
-    }
-
-    lastaddr = address;
-    printf("%04x:", address);
-    for (j = 0; j < count; j++)
-    {
-        if (j == 8)
-            putchar(' ');
-        if (num[j] >= 0)
-            printf(" %02x", num[j]);
-        else
-            printf("   ");
-        lastnum[j] = num[j];
-        num[j] = -1;
-    }
-
-    for (j=count; j < 16; j++)
-    {
-        if (j == 8)
-            putchar(' ');
-        printf("   ");
-    }
-
-    printf("  ");
-    for (j = 0; j < count; j++)
-        printf("%c", chr[j]);
-    printf("\n");
-}
-
-void hexdump(int startoff, unsigned char *addr, int count, int summary)
-{
-    int offset;
-    char buf[20];
-    int num[16];
-
-    for (offset = startoff; count > 0; count -= 16, offset += 16)
-    {
-        int j, ch;
-
-        memset(buf, 0, 16);
-        for (j = 0; j < 16; j++)
-            num[j] = -1;
-        for (j = 0; j < 16; j++)
-        {
-            ch = *addr++;
-
-            num[j] = ch;
-            if (isprint(ch) && ch < 0x80)
-                buf[j] = ch;
-            else
-                buf[j] = '.';
-        }
-        printline(offset, num, buf, count > 16? 16: count, summary);
-    }
-}
-#endif
 
 static void write_environ(int argc, char **argv, char **envp)
 {
@@ -173,6 +94,24 @@ static void error(const char* operation)
     exit(1);
 }
 
+static void set_entry_registers(void)
+{
+    if (!f_asmout)
+        printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", cs(), getIP(), ds(), ss(), sp());
+    setES(ds());        /* ES = DS */
+    setAX(0x0000);
+    setBX(0x0000);
+    setCX(0x0000);
+    setDX(0x0000);
+    setBP(0x0000);
+    setSI(0x0000);
+    setDI(0x0000);
+}
+
+static void load_bios_irqs(void)
+{
+}
+
 void load_executable(const char *path, int argc, char **argv, char **envp)
 {
     filename = path;
@@ -202,17 +141,14 @@ void load_executable(const char *path, int argc, char **argv, char **envp)
         physicalAddress(i & 15, ES, true);
     }
     setES(loadSegment);
-    setCS(loadSegment);
-    setSS(loadSegment);
-    setDS(loadSegment);
-    int hlen = readWord(0x04);
-    int version = readWord(0x06);
-    int tseg = readWord(0x08);
-    int dseg = readWord(0x0C);
-    int bseg = readWord(0x10);
-    int entry = readWord(0x14);
-    int chmem = readWord(0x18);
-    int minstack = readWord(0x1C);
+    int hlen = readWordSeg(0x04, ES);
+    int version = readWordSeg(0x06, ES);
+    int tseg = readWordSeg(0x08, ES);
+    int dseg = readWordSeg(0x0C, ES);
+    int bseg = readWordSeg(0x10, ES);
+    int entry = readWordSeg(0x14, ES);
+    int chmem = readWordSeg(0x18, ES);
+    int minstack = readWordSeg(0x1C, ES);
     if (!f_asmout)
         printf("hlen %x version %x tseg %x dseg %x bseg %x entry %x chmem %x minstack %x\n",
         hlen, version, tseg, dseg, bseg, entry, chmem, minstack);
@@ -232,28 +168,13 @@ void load_executable(const char *path, int argc, char **argv, char **envp)
     //int extra = stack - sp();
     if (!f_asmout)
         printf("Text %x Data %x Stack %x\n", tseg, dseg+bseg+4096, 4096);
-    ip = entry;
+    setIP(entry);
 
     for (int i=dseg; i<dseg+bseg; i++)  /* clear BSS */
         writeByte(0, i, DS);
-}
 
-void set_entry_registers(void)
-{
-    if (!f_asmout)
-        printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", cs(), ip, ds(), ss(), sp());
-    setES(ds());        /* ES = DS */
-    setAX(0x0000);
-    setBX(0x0000);
-    setCX(0x0000);
-    setDX(0x0000);
-    setBP(0x0000);
-    setSI(0x0000);
-    setDI(0x0000);
-}
-
-void load_bios_irqs(void)
-{
+    load_bios_irqs();
+    set_entry_registers();
 }
 
 void handle_intcall(int intno)

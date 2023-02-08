@@ -14,21 +14,21 @@
 #include "sim.h"
 #include "disasm.h"
 
+typedef int bool;
+
 /* emulator globals */
 Word registers[12];
 Byte* byteRegisters[8];
-static Word flags;
-Word ip;
-Byte opcode;
-int segment;
-bool repeating;
-int ios;
 Byte ram[RAMSIZE];
 
 static Byte initialized[RAMSIZE / 8];
 static bool useMemory;
 static Word address;
+static Word ip;
+static Byte opcode;
+static Word flags;
 static Byte modRM;
+static int segment;
 static bool wordSize;
 static bool sourceIsRM;
 static DWord data;
@@ -42,6 +42,12 @@ static Word residue;
 static int aluOperation;
 static bool running;
 static bool prefix;
+static bool repeating;
+static int ios;
+
+static inline Word rw(void)          { return registers[opcode & 7]; }
+static inline void setRW(Word value) { registers[opcode & 7] = value; }
+static inline void setRB(Byte value) { *byteRegisters[opcode & 7] = value; }
 
 int initMachine(void)
 {
@@ -69,7 +75,7 @@ void initExecute(void)
     repeating = false;
 }
 
-DWord physicalAddress(Word offset, int seg, bool write)
+DWord physicalAddress(Word offset, int seg, int write)
 {
     ios++;
     if (seg == -1) {
@@ -104,11 +110,6 @@ Word readWordSeg(Word offset, int seg)
 {
     Word r = readByte(offset, seg);
     return r + (readByte(offset + 1, seg) << 8);
-}
-
-Word readWord(Word offset)
-{
-    return readWordSeg(offset, -1);
 }
 
 static Word readwb(Word offset, int seg)
@@ -154,8 +155,12 @@ static void jumpShort(Byte data, bool jump)
     if (jump)
         doJump(ip + signExtend(data));
 }
+int isRepeating(void) { return repeating; }
+Word getIP(void) { return ip; }
+Word getFlags(void) { return flags; }
+void setIP(Word w) { ip = w; }
 void setFlags(Word w) { flags = w; }
-void setCF(bool cf) { flags = (flags & ~1) | (cf ? 1 : 0); }
+void setCF(int cf) { flags = (flags & ~1) | (cf ? 1 : 0); }
 static void setAF(bool af) { flags = (flags & ~0x10) | (af ? 0x10 : 0); }
 static void clearCA() { setCF(false); setAF(false); }
 static void setOF(bool of) { flags = (flags & ~0x800) | (of ? 0x800 : 0); }
@@ -401,8 +406,8 @@ static void farLoad()
 {
     if (!useMemory)
         runtimeError("This instruction needs a memory address");
-    savedIP = readWord(address);
-    savedCS = readWord(address + 2);
+    savedIP = readWordSeg(address, -1);
+    savedCS = readWordSeg(address + 2, -1);
 }
 static void farJump() { setCS(savedCS); doJump(savedIP); }
 static void farCall() { push(cs()); push(ip); farJump(); }

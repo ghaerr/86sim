@@ -11,6 +11,7 @@
 /* loader globals */
 Word loadSegment;
 DWord stackLow;
+int f_asmout;
 
 static const char* filename;
 static int filesize;
@@ -42,7 +43,7 @@ static void write_environ(int argc, char **argv, char **envp)
             ++i;
         }
         char* arg = argv[a];
-        bool quote = strchr(arg, ' ') != 0;
+        int quote = strchr(arg, ' ') != 0;
         if (quote) {
             writeByte('\"', i, ES);
             ++i;
@@ -101,6 +102,40 @@ static void error(const char* operation)
     exit(1);
 }
 
+static void set_entry_registers(void)
+{
+    if (!f_asmout)
+        printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", cs(), getIP(), ds(), ss(), sp());
+    setES(loadSegment - 0x10);
+    setAX(0x0000);
+    setBX(0x0000);
+    setCX(0x0000);
+    setDX(0x0000);  // was segment
+    setBP(0x091C);
+    setSI(0x0100);
+    setDI(0xFFFE);
+}
+
+static void load_bios_irqs(void)
+{
+    // Fill up parts of the interrupt vector table, the BIOS clock tick count,
+    // and parts of the BIOS ROM area with stuff, for the benefit of the far
+    // pointer tests.
+    setES(0x0000);
+    writeWord(0x0000, 0x0080, ES);
+    writeWord(0xFFFF, 0x0082, ES);
+    writeWord(0x0058, 0x046C, ES);
+    writeWord(0x000C, 0x046E, ES);
+    writeByte(0x00, 0x0470, ES);
+    setES(0xF000);
+    for (int i = 0; i < 0x100; i += 2)
+        writeWord(0xF4F4, 0xFF00 + (unsigned)i, ES);
+    // We need some variety in the ROM BIOS content...
+    writeByte(0xEA, 0xFFF0, ES);
+    writeWord(0xFFF0, 0xFFF1, ES);
+    writeWord(0xF000, 0xFFF3, ES);
+}
+
 void load_executable(const char *path, int argc, char **argv, char **envp)
 {
     init();
@@ -125,7 +160,7 @@ void load_executable(const char *path, int argc, char **argv, char **envp)
         error("reading");
     fclose(fp);
 
-    ip = 0x100;
+    setIP(0x0100);
     setFlags(0x0002);
     write_environ(argc, argv, envp);
     for (int i = 0; i < filesize; ++i) {
@@ -133,48 +168,49 @@ void load_executable(const char *path, int argc, char **argv, char **envp)
         physicalAddress(i & 15, ES, true);
     }
     setES(loadSegment - 0x10);
-    setCS(loadSegment - 0x10);
-    setSS(loadSegment - 0x10);
-    setDS(loadSegment - 0x10);
-    if (filesize >= 2 && readWord(0x100) == 0x5a4d) {  // .exe file?
+    if (filesize >= 2 && readWordSeg(0x100, ES) == 0x5a4d) {  // .exe file?
         if (filesize < 0x21) {
             fprintf(stderr, "%s is too short to be an .exe file\n", filename);
             exit(1);
         }
-        Word bytesInLastBlock = readWord(0x102);
-        int exeLength = ((readWord(0x104) - (bytesInLastBlock == 0 ? 0 : 1)) << 9)
+        Word bytesInLastBlock = readWordSeg(0x102, ES);
+        int exeLength = ((readWordSeg(0x104, ES) - (bytesInLastBlock == 0 ? 0 : 1)) << 9)
             + bytesInLastBlock;
-        int headerParagraphs = readWord(0x108);
+        int headerParagraphs = readWordSeg(0x108, ES);
         int headerLength = headerParagraphs << 4;
         if (exeLength > filesize || headerLength > filesize ||
             headerLength > exeLength) {
             fprintf(stderr, "%s is corrupt\n", filename);
             exit(1);
         }
-        int relocationCount = readWord(0x106);
+        int relocationCount = readWordSeg(0x106, ES);
         Word imageSegment = loadSegment + headerParagraphs;
-        int relocationData = readWord(0x118);
+        int relocationData = readWordSeg(0x118, ES);
         for (int i = 0; i < relocationCount; ++i) {
-            int offset = readWord(relocationData + 0x100);
-            setCS(readWord(relocationData + 0x102) + imageSegment);
+            int offset = readWordSeg(relocationData + 0x100, ES);
+            setCS(readWordSeg(relocationData + 0x102, ES) + imageSegment);
             writeWord(readWordSeg(offset, CS) + imageSegment, offset, CS);
             relocationData += 4;
         }
         //loadSegment = imageSegment;  // Prevent further access to header
-        Word ss = readWord(0x10e) + imageSegment;
+        Word ss = readWordSeg(0x10e, ES) + imageSegment;
         setSS(ss);
-        setSP(readWord(0x110));
+        setSP(readWordSeg(0x110, ES));
         stackLow = (((exeLength - headerLength + 15) >> 4) + imageSegment) << 4;
         if (stackLow < ((DWord)ss << 4) + 0x10)
             stackLow = ((DWord)ss << 4) + 0x10;
-        ip = readWord(0x114);
-        setCS(readWord(0x116) + imageSegment);
+        setDS(loadSegment - 0x10);
+        setIP(readWordSeg(0x114, ES));
+        setCS(readWordSeg(0x116, ES) + imageSegment);
     }
     else {
         if (filesize > 0xff00) {
             fprintf(stderr, "%s is too long to be a .com file\n", filename);
             exit(1);
         }
+        setCS(loadSegment);
+        setDS(loadSegment);
+        setSS(loadSegment);
         setSP(0xFFFE);
         stackLow = ((DWord)loadSegment << 4) + filesize;
     }
@@ -197,43 +233,12 @@ void load_executable(const char *path, int argc, char **argv, char **envp)
             ++d;
         } while (d != 0);
     }
+
+    load_bios_irqs();
+    set_entry_registers();
 }
 
-void set_entry_registers(void)
-{
-    if (!f_asmout)
-        printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", cs(), ip, ds(), ss(), sp());
-    setES(loadSegment - 0x10);
-    setAX(0x0000);
-    setBX(0x0000);
-    setCX(0x0000);
-    setDX(segment);
-    setBP(0x091C);
-    setSI(0x0100);
-    setDI(0xFFFE);
-}
-
-void load_bios_irqs(void)
-{
-    // Fill up parts of the interrupt vector table, the BIOS clock tick count,
-    // and parts of the BIOS ROM area with stuff, for the benefit of the far
-    // pointer tests.
-    setES(0x0000);
-    writeWord(0x0000, 0x0080, ES);
-    writeWord(0xFFFF, 0x0082, ES);
-    writeWord(0x0058, 0x046C, ES);
-    writeWord(0x000C, 0x046E, ES);
-    writeByte(0x00, 0x0470, ES);
-    setES(0xF000);
-    for (int i = 0; i < 0x100; i += 2)
-        writeWord(0xF4F4, 0xFF00 + (unsigned)i, ES);
-    // We need some variety in the ROM BIOS content...
-    writeByte(0xEA, 0xFFF0, ES);
-    writeWord(0xFFF0, 0xFFF1, ES);
-    writeWord(0xF000, 0xFFF3, ES);
-}
-
-char* initString(Word offset, int seg, bool write, int buffer, int bytes)
+char* initString(Word offset, int seg, int write, int buffer, int bytes)
 {
     for (int i = 0; i < bytes; ++i) {
         char p;
@@ -252,7 +257,7 @@ char* initString(Word offset, int seg, bool write, int buffer, int bytes)
         pathBuffers[buffer][0xffff] = 0;
     return pathBuffers[buffer];
 }
-char* dsdxparms(bool write, int bytes)
+char* dsdxparms(int write, int bytes)
 {
     return initString(dx(), 3, write, 0, bytes);
 }
@@ -475,7 +480,7 @@ void handle_intcall(int intno)
                         // segment end
                         if (es() == loadSegment - 0x10) {
                             DWord memEnd = (DWord)(es() + bx()) << 4;
-                            if (physicalAddress(ip, CS, false) < memEnd &&
+                            if (physicalAddress(getIP(), CS, false) < memEnd &&
                                 physicalAddress(sp() - 1, SS, true) < memEnd) {
                                 setCF(false);
                                 break;
@@ -487,7 +492,7 @@ void handle_intcall(int intno)
                         break;
                     case 0x214c:
                         printf("\n*** Bytes: %i\n", filesize);
-                        printf("*** Cycles: %i\n", ios);
+                        //printf("*** Cycles: %i\n", ios);
                         printf("*** EXIT code %i\n", al());
                         exit(0);
                         break;

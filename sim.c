@@ -15,9 +15,9 @@
 #include "sim.h"
 #include "disasm.h"
 
-static bool f_disasm = 1;       /* do disassembly */
-static bool f_showreps = 1;     /* show repeating instructions */
-bool f_asmout = 0;              /* output gnu as compatible input */
+static int f_disasm = 1;       /* do disassembly */
+static int f_showreps = 1;     /* show repeating instructions */
+int f_asmout = 0;              /* output gnu as compatible input */
 
 char *getsymbol(int seg, int offset)
 {
@@ -46,7 +46,7 @@ void runtimeError(const char *msg, ...)
     va_start(args, msg);
     vfprintf(stderr, msg, args);
     va_end(args);
-    fprintf(stderr, "\nCS:IP = %04x:%04x\n", cs(), ip);
+    fprintf(stderr, "\nCS:IP = %04x:%04x\n", cs(), getIP());
     exit(1);
 }
 
@@ -66,8 +66,6 @@ int main(int argc, char* argv[])
     }
     initMachine();
     load_executable(argv[1], argc, argv, environ);
-    load_bios_irqs();
-    set_entry_registers();
 
 #ifdef __APPLE__    /* macOS stdio drops characters! */
     static char buf[1];
@@ -76,14 +74,14 @@ int main(int argc, char* argv[])
 
     initExecute();
     int flags = f_asmout? fDisInst | fDisAsmSource : fDisCSIP | fDisBytes | fDisInst;
-    Word lastIP = ip;
+    Word lastIP = getIP();
     for (;;) {
-        if (f_disasm && (f_showreps || !repeating)) {
+        if (f_disasm && (f_showreps || !isRepeating())) {
             disasm(&d, cs(), lastIP, nextbyte_mem, ds(), flags);
             printf("%s\n", d.buf);
         }
         ExecuteInstruction();
-        if (!repeating)
-            lastIP = ip;
+        if (!isRepeating())
+            lastIP = getIP();
     }
 }

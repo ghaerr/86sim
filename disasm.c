@@ -130,15 +130,20 @@ static void outRM(struct dis *d, Word w)
 
 static void out_bw(struct dis *d, int flags)
 {
-    int bw;
+    int bw, special;
 
     if ((flags & (BW|OPS2|RM)) == 0)
         return;
 
-    /* discard non- BW, IMM, inc/dec and non-direct addressing */
-    bw = (flags == BW || (flags & IMM) ||
-          opcode == 0xfe || opcode == 0xff || opcode == 0xf6 || opcode == 0xf7);
+    /* handle test/not/neg/mul/imul/div/idiv/inc/dec specially */
+    special = (opcode == 0xfe || opcode == 0xff || opcode == 0xf6 || opcode == 0xf7);
+
+    /* discard non-(BW, IMM, shift) and non-direct addressing */
+    bw = (flags == BW || (flags & (IMM|SHIFTBY1|SHIFTBYCL)) || special);
     if (!bw && ((flags & (OPS2|RM)) && (d_modRM & 0xc7) != 6))
+        return;
+    /* discard register operands on special */
+    if (special && (d_modRM & 0xc0) == 0xc0)
         return;
     /* discard immediate to register */
     if ((flags & IMM) && ((flags & (OPS2|RM)) && ((d_modRM & 0xc0) == 0xc0)))
@@ -146,6 +151,15 @@ static void out_bw(struct dis *d, int flags)
     /* discard register operands */
     if (flags & REGOP)
         return;
+    /* discard register operands on alu ops */
+    if ((opcode & 0x3d) == opcode)
+        return;
+    /* discard mov accumulator and test accumulator opcodes */
+    if ((opcode & 0xa3) == opcode || opcode == 0xa8 || opcode == 0xa9) {
+        /* but not alu opcodes */
+        if (opcode < 0x80 || opcode > 0x83)
+            return;
+    }
     d->col++;
     *d->s++ = wordSize? 'w': 'b';
 }

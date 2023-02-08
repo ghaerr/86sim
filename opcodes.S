@@ -176,10 +176,10 @@ _start:
     mov    %dx,0x9090(%bx)
     mov    0x9090(%bx),%dl
     mov    0x9090(%bx),%dx
-    movw   %ss,0x9090(%bx)
+    mov    %ss,0x9090(%bx)
     lea    0x9090(%bx),%dx
-    movw   0x9090(%bx),%ss
-    popw   0x9090(%bx)
+    mov    0x9090(%bx),%ss
+    pop    0x9090(%bx)
 
     // 90
     xchg   %ax,%ax                  // FIXME display as NOP?
@@ -303,16 +303,22 @@ _start:
     cmc
     notb   0x9090(%bx)
     test   $0x90,%bl
+    testb  $0xa0,0x9090(%bx)
+    negb   0x9090(%bx)
     neg    %bl
     imul   %bl
+    imulb  0x9090(%bx)
     idiv   %bl
     mul    %bl
     div    %bl
+    testw  $0xa0a0,0x9090(%bx)
     notw   0x9090(%bx)
+    negw   0x9090(%bx)
     test   $0x90,%bx
     neg    %bx
     mul    %bx
     imul   %bx
+    imulw  0x9090(%bx)
     div    %bx
     idiv   %bx
     clc
@@ -321,8 +327,11 @@ _start:
     sti
     cld
     std
-    incb   %al
-    decb   0x9090(%bx)
+    inc    %al
+    incb   0x9090(%bx)
+    incw   0x9090(%bx)
+    dec    %al
+    decw   0x9090(%bx)
     call   *0x9090(%bx)
     push   0x0000
     push   0x7fff
@@ -448,6 +457,7 @@ _start:
     mov    $0x9090,%si
     mov    $0x9090,%di
     rclw   $0x90,0x9090(%bx)
+    rclb   $0x90,0x9090(%bx)
     retw   $0x9090
     retw
     les    0x9090(%bx),%dx

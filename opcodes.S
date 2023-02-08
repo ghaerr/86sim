@@ -302,7 +302,19 @@ _start:
     hlt
     cmc
     notb   0x9090(%bx)
+    test   $0x90,%bl
+    neg    %bl
+    imul   %bl
+    idiv   %bl
+    mul    %bl
+    div    %bl
     notw   0x9090(%bx)
+    test   $0x90,%bx
+    neg    %bx
+    mul    %bx
+    imul   %bx
+    div    %bx
+    idiv   %bx
     clc
     stc
     cli

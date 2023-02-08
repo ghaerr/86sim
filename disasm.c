@@ -52,7 +52,7 @@ static Word d_fetchByte(struct dis *d)
 {
     Byte b = d->getbyte(d->cs, d->ip++);
     if (d->flags & fDisBytes) {
-        d->s += sprintf(d->s, "%02x ", b);
+        d->s += sprintf(d->s, (d->flags & fDisOctal)? "%03o ": "%02x ", b);
         d->col++;
     }
     return b;
@@ -136,7 +136,8 @@ static void out_bw(struct dis *d, int flags)
         return;
 
     /* discard non- BW, IMM, inc/dec and non-direct addressing */
-    bw = (flags == BW || (flags & IMM) || opcode == 0xfe || opcode == 0xff);
+    bw = (flags == BW || (flags & IMM) ||
+          opcode == 0xfe || opcode == 0xff || opcode == 0xf6 || opcode == 0xf7);
     if (!bw && ((flags & (OPS2|RM)) && (d_modRM & 0xc7) != 6))
         return;
     /* discard immediate to register */
@@ -178,8 +179,9 @@ static void outs(struct dis *d, const char *str, int flags)
     if (!(d->flags & fDisInst))
         return;
     if (d->flags & fDisBytes) {
-        while (d->col++ < 6)
-            d->s += sprintf(d->s, "   ");
+        while (d->col++ < 6) {
+            d->s += sprintf(d->s, (d->flags & fDisOctal)? "    ": "   ");
+        }
     } else {
         d->s += sprintf(d->s, "    ");
     }
@@ -233,8 +235,10 @@ static void outs(struct dis *d, const char *str, int flags)
         d->s += sprintf(d->s, "%s", wordSize? wordregs[0]: byteregs[0]);
     if ((flags & MEMWORD) && sourceIsRM == 0)
         d->s += sprintf(d->s, "(%s)", getsymbol(d->ds, w2));
-    if (flags & REGOP) d->s += sprintf(d->s, "%s", wordSize? wordregs[opcode & 7]: byteregs[opcode & 7]);
-    if ((flags & (JMP|IMM|WORD)) == WORD) d->s += sprintf(d->s, "%u", w2);
+    if (flags & REGOP)
+        d->s += sprintf(d->s, "%s", wordSize? wordregs[opcode & 7]: byteregs[opcode & 7]);
+    if ((flags & (JMP|IMM|WORD)) == WORD)
+        d->s += sprintf(d->s, "%u", w2);
     if (flags & JMP) {
         if (flags & SBYTE) {
             if (d->flags & fDisAsmSource)
@@ -259,27 +263,11 @@ static void decode(struct dis *d)
         "add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"
     };
 
-    int flags;
-#if 0
-    bool prefix = false;
-    //do {
-        //if (!repeating) {
-            if (!prefix) {
-                segOver = -1;
-                //rep = 0;
-            }
-            prefix = false;
-            //opcode = fetchByte();
-        //}
-nextopcode:
-#endif
         opcode = d_fetchByte(d);
-        //if (rep != 0 && (opcode < 0xa4 || opcode >= 0xb0 || opcode == 0xa8 ||
-            //opcode == 0xa9))
-            //runtimeError("REP prefix with non-string instruction");
         wordSize = ((opcode & 1) != 0);
         sourceIsRM = ((opcode & 2) != 0);
         int operation = (opcode >> 3) & 7;
+        int flags;
         switch (opcode) {
             case 0x00: case 0x01: case 0x02: case 0x03:
             case 0x08: case 0x09: case 0x0a: case 0x0b:
@@ -405,7 +393,10 @@ nextopcode:
             case 0x8f:  // POP rmw
                 outs(d, "pop", RDMOD|RM);
                 break;
-            case 0x90: case 0x91: case 0x92: case 0x93:
+            case 0x90:
+                outs(d, "nop", 0);
+                break;
+            case 0x91: case 0x92: case 0x93:
             case 0x94: case 0x95: case 0x96: case 0x97:  // XCHG AX,rw
                 wordSize = 1;
                 sourceIsRM = 0; // acc src
@@ -555,11 +546,11 @@ nextopcode:
                 outs(d, "jmp", JMP|SBYTE);
                 break;
             case 0xe4: case 0xe5: case 0xe6: case 0xe7:  // IN, OUT ib
-                outs(d, (opcode & 2)? "out": "in ", IMM|BYTE|ACC);
+                outs(d, (opcode & 2)? "out": "in", IMM|BYTE|ACC);
                 break;
             case 0xec: case 0xed: case 0xee: case 0xef:  // IN, OUT dx
                 d_modRM = 0xd0;
-                outs(d, (opcode & 2)? "out": "in ", OPS2);
+                outs(d, (opcode & 2)? "out": "in", OPS2);
                 break;
             case 0xf0:  // LOCK
                 outs(d, "lock", 0);
@@ -580,22 +571,27 @@ nextopcode:
                 break;
             case 0xf6: case 0xf7:  // math rmv
                 d_modRM = d_fetchByte(d);
-                //data = readEA();
                 switch (d_modRMReg()) {
                     case 0: case 1:  // TEST rmv,iv
                         outs(d, "test", BW|IMM|RM);
                         break;
                     case 2:  // NOT iv
-                        outs(d, "not", BW|RM);     //FIXME f6=notb, f7=notw
+                        outs(d, "not", BW|RM);
                         break;
                     case 3:  // NEG iv
                         outs(d, "neg", BW|RM);
                         break;
-                    case 4: case 5:  // MUL rmv, IMUL rmv
-                        outs(d, d_modRMReg() == 4? "mul": "imul", BW|RM);
+                    case 4:  // MUL rmv
+                        outs(d, "mul", BW|RM);
                         break;
-                    case 6: case 7:  // DIV rmv, IDIV rmv
-                        outs(d, d_modRMReg() == 4? "div": "idiv", BW|RM);
+                    case 5:  // IMUL rmv
+                        outs(d, "imul", BW|RM);
+                        break;
+                    case 6: // DIV rmv
+                        outs(d, "div", BW|RM);
+                        break;
+                    case 7: // IDIV rmv
+                        outs(d, "ldiv", BW|RM);
                         break;
                 }
                 break;

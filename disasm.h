@@ -26,6 +26,7 @@ struct dis {
 #define fDisBytes       0x0004  /* show byte codes */
 #define fDisInst        0x0008  /* show instruction */
 #define fDisAsmSource   0x0010  /* output gnu compatible 'as' input */
+#define fDisOctal       0x0020  /* use octal for byte codes */
 
 /* disasm.c */
 // use unsigned!

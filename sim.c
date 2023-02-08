@@ -15,9 +15,9 @@
 #include "sim.h"
 #include "disasm.h"
 
-bool f_disasm = 1;      /* do disassembly */
-bool f_asmout = 0;      /* output gnu as compatible input */
-bool f_showreps = 1;    /* show repeating instructions */
+static bool f_disasm = 1;       /* do disassembly */
+static bool f_showreps = 1;     /* show repeating instructions */
+bool f_asmout = 0;              /* output gnu as compatible input */
 
 char *getsymbol(int seg, int offset)
 {
@@ -37,10 +37,7 @@ char *getsegsymbol(int seg)
 
 int nextbyte_mem(int cs, int ip)
 {
-    int b = readByte(ip, CS);
-    if (!f_asmout) printf("%02x ", b);
-    else f_outcol = 0;
-    return b;
+    return readByte(ip, CS);
 }
 
 void runtimeError(const char *msg, ...)
@@ -61,6 +58,7 @@ void divideOverflow()
 int main(int argc, char* argv[])
 {
     extern char **environ;
+    struct dis d = {};
 
     if (argc < 2) {
         printf("Usage: %s <program name>\n", argv[0]);
@@ -77,11 +75,12 @@ int main(int argc, char* argv[])
 #endif
 
     initExecute();
+    int flags = f_asmout? fDisInst | fDisAsmSource : fDisCSIP | fDisBytes | fDisInst;
     Word lastIP = ip;
     for (;;) {
         if (f_disasm && (f_showreps || !repeating)) {
-            if (!f_asmout) printf("%04hx:%04hx  ", cs(), lastIP);
-            disasm(cs(), lastIP, nextbyte_mem, ds());
+            disasm(&d, cs(), lastIP, nextbyte_mem, ds(), flags);
+            printf("%s\n", d.buf);
         }
         ExecuteInstruction();
         if (!repeating)

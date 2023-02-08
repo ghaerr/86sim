@@ -30,9 +30,7 @@ extern Byte ram[RAMSIZE];
 extern Word loadSegment;
 extern DWord stackLow;
 
-extern int f_disasm;        /* do disassembly */
-extern int f_asmout;        /* output gnu as compatible input */
-extern int f_showreps;      /* show repeating instructions */
+extern int f_asmout;
 
 int initMachine(void);
 void initExecute(void);

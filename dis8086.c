@@ -15,13 +15,13 @@
 #include <linuxmt/mem.h>
 #include "syms.h"
 #include "instrument.h"
-#else
-#define noinstrument
 #endif
 #include "disasm.h"
 
-#define KSYMTAB         "/lib/system.sym"
+static int f_asmout = 0;    /* output gnu as compatible input */
+static struct dis d;
 
+#define KSYMTAB     "/lib/system.sym"
 #define MAGIC       0x0301  /* magic number for executable progs */
 
 char f_ksyms;
@@ -78,10 +78,7 @@ char * noinstrument getsegsymbol(int seg)
 
 int nextbyte_mem(int cs, int ip)
 {
-    int b = peekb(cs, ip);
-    if (!f_asmout) printf("%02x ", b);
-    else f_outcol = 0;
-    return b;
+    return peekb(cs, ip);
 }
 
 void disasm_mem(int cs, int ip, int opcount)
@@ -89,11 +86,12 @@ void disasm_mem(int cs, int ip, int opcount)
     int n;
     int nextip;
 
+    int flags = f_asmout? fDisInst | fDisAsmSource : fDisCSIP | fDisBytes | fDisInst;
     if (!opcount) opcount = 32767;
     if (!f_asmout) printf("Disassembly of %s:\n", getsymbol(cs, (int)ip));
     for (n=0; n<opcount; n++) {
-        if (!f_asmout) printf("%04hx:%04hx  ", cs, ip);
-        nextip = disasm(cs, ip, nextbyte_mem, dataseg);
+        nextip = disasm(&d, cs, ip, nextbyte_mem, dataseg, flags);
+        printf("%s\n", d.buf);
         if (opcount == 32767 && peekb(cs, ip) == 0xc3)  /* RET */
             break;
         ip = nextip;
@@ -108,8 +106,6 @@ static int nextbyte_file(int cs, int ip)
 #ifndef __ia16__
     if (b == EOF) exit(0);
 #endif
-    if (!f_asmout) printf("%02x ", b);
-    else f_outcol = 0;
     return b;
 }
 
@@ -137,9 +133,10 @@ int disasm_file(char *filename)
    fseek(infp, 0x20, SEEK_SET);     // SKIP a.out header
 #endif
 
+    int flags = f_asmout? fDisInst | fDisAsmSource : fDisAddr | fDisBytes | fDisInst;
     while (ip < filesize) {
-        if (!f_asmout) printf("%04hx  ", ip);
-        nextip = disasm(textseg, ip, nextbyte_file, dataseg);
+        nextip = disasm(&d, textseg, ip, nextbyte_file, dataseg, flags);
+        printf("%s\n", d.buf);
         ip = nextip;
     }
     fclose(infp);

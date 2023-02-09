@@ -262,6 +262,11 @@ _start:
     rclw   0x9090(%bx)
     rclb   %cl,0x9090(%bx)
     rclw   %cl,0x9090(%bx)
+    rclw   $1,0x9090(%bx)
+    shl    $1,%ax
+    shl    %cl,%ax
+    shlb   %cl,0x9090(%bx)
+    shlw   %cl,0x9090(%bx)
     aam    $0x90        // FIXME disasm arg
     aad    $0x90        // FIXME disasm arg
     //salc              // undocumented STC in AL (0xd6)

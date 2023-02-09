@@ -148,6 +148,8 @@ static void out_bw(struct dis *d, int flags)
     /* discard immediate to register */
     if ((flags & IMM) && ((flags & (OPS2|RM)) && ((d_modRM & 0xc0) == 0xc0)))
         return;
+    if ((flags & (SHIFTBY1|SHIFTBYCL)) && ((d_modRM & 0xc0) == 0xc0))
+        return;
     /* discard register operands */
     if (flags & REGOP)
         return;

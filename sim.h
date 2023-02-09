@@ -1,7 +1,9 @@
 /* sim.h */
-typedef unsigned char Byte;
-typedef unsigned short int Word;
-typedef unsigned int DWord;
+#include <stdint.h>
+
+typedef uint8_t  Byte;
+typedef uint16_t Word;
+typedef uint32_t DWord;
 enum { false = 0, true };
 
 /* segment registers after 8 general registers */

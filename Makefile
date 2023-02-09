@@ -28,8 +28,8 @@ sim-dos: sim.c 8086.c disasm.c loadexec-dos.c
 sim-elks: sim.c 8086.c disasm.c loadexec-elks.c
 	$(CC) $(CFLAGS) -DELKS=1 -o $@ $^
 
-dis8086: dis8086.c disasm.c
-	$(CC) $(CFLAGS) -D__far= -Wno-int-to-void-pointer-cast -Wno-format -o $@ $^
+dis8086: dis8086.c disasm.c syms.c
+	$(CC) $(CFLAGS) -D__far= -Wno-format -o $@ $^
 
 opcodes: opcodes.S
 	ia16-elf-gcc -melks -ffreestanding -nostdlib -o $@ $^

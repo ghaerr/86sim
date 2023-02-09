@@ -1,16 +1,16 @@
 /*
  * Tiny 8086 disassembler
  *
- * Jan 2022 Greg Haerr
+ * Written Jan 2022 Greg Haerr
  * Inspired by Andrew Jenner's 8086 simulator 86sim.cpp
  */
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include "disasm.h"
 
-typedef unsigned char Byte;
-typedef unsigned short int Word;
-typedef unsigned int DWord;
+typedef uint8_t  Byte;
+typedef uint16_t Word;
 typedef int bool;
 enum { false = 0, true };
 

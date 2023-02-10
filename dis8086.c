@@ -84,7 +84,7 @@ void disasm_mem(int cs, int ip, int opcount)
     int n;
     int nextip;
 
-    int flags = f_asmout? fDisInst | fDisAsmSource : fDisCSIP | fDisBytes | fDisInst;
+    int flags = f_asmout? fDisInst | fDisAsmSource : fDisCS | fDisIP | fDisBytes | fDisInst;
     if (f_octal) flags |= fDisOctal;
     if (!opcount) opcount = 32767;
     if (!f_asmout) printf("Disassembly of %s:\n", getsymbol(cs, (int)ip));

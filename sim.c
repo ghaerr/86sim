@@ -73,7 +73,7 @@ int main(int argc, char* argv[])
 #endif
 
     initExecute();
-    int flags = f_asmout? fDisInst | fDisAsmSource : fDisCSIP | fDisBytes | fDisInst;
+    int flags = f_asmout? fDisInst | fDisAsmSource : fDisCS | fDisIP | fDisBytes | fDisInst;
     Word lastIP = getIP();
     for (;;) {
         if (f_disasm && (f_showreps || !isRepeating())) {

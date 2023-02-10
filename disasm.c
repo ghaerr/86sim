@@ -31,11 +31,12 @@ int disasm(struct dis *d, int cs, int ip, int (*nextbyte)(int, int), int ds, int
     d->flags = flags;
     d->col = 0;
     d->s = d->buf;
-    if (d->flags & fDisCSIP)
-        d->s += sprintf(d->s, "%04hx:%04hx  ",
-            (unsigned short)d->cs, (unsigned short)d->ip);
     if (d->flags & fDisAddr)
-        d->s += sprintf(d->s, "%05lx  ", (unsigned long)(cs << 4) | ip);
+        d->s += sprintf(d->s, "%05lx ", (unsigned long)(cs << 4) | (unsigned short)ip);
+    if (d->flags & fDisCS)
+        d->s += sprintf(d->s, "%04hx:", (unsigned short)cs);
+    if (d->flags & fDisIP)
+        d->s += sprintf(d->s, "%04hx ", (unsigned short)ip);
     decode(d);
     d->s[0] = '\0';
     d->oplen = d->ip - ip;
@@ -198,8 +199,6 @@ static void outs(struct dis *d, const char *str, int flags)
         while (d->col++ < 6) {
             d->s += sprintf(d->s, (d->flags & fDisOctal)? "    ": "   ");
         }
-    } else {
-        d->s += sprintf(d->s, "    ");
     }
     if ((d->flags & fDisAsmSource) && !strcmp(str, "???")) {
         d->s += sprintf(d->s, ".byte 0x%02x", opcode);

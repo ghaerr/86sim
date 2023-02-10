@@ -17,16 +17,17 @@ struct dis {
     unsigned int col;
     int (*getbyte)(int, int);
     char *s;
-    char buf[64];
+    char buf[128];
 };
 
 /* disassembler flags */
-#define fDisCSIP        0x0001  /* show address as CS:IP */
-#define fDisAddr        0x0002  /* show linear address */
-#define fDisBytes       0x0004  /* show byte codes */
-#define fDisInst        0x0008  /* show instruction */
-#define fDisAsmSource   0x0010  /* output gnu compatible 'as' input */
-#define fDisOctal       0x0020  /* use octal for byte codes */
+#define fDisCS          0x0001  /* show CS: value */
+#define fDisIP          0x0002  /* show IP address */
+#define fDisAddr        0x0004  /* show linear address */
+#define fDisBytes       0x0008  /* show byte codes */
+#define fDisOctal       0x0010  /* use octal for byte codes */
+#define fDisInst        0x0020  /* show instruction */
+#define fDisAsmSource   0x0040  /* output gnu compatible 'as' input */
 
 /* disasm.c */
 // use unsigned!

@@ -25,6 +25,7 @@ typedef unsigned int addr_t;    /* ELKS a.out address size (short) or larger */
 
 unsigned char * noinstrument sym_read_exe_symbols(char *path);
 unsigned char * noinstrument sym_read_symbols(char *path);
+void noinstrument sym_free(void);
 char * noinstrument sym_text_symbol(addr_t addr, int exact);
 char * noinstrument sym_ftext_symbol(addr_t addr, int exact);
 char * noinstrument sym_data_symbol(addr_t addr, int exact);

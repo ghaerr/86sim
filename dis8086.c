@@ -116,7 +116,7 @@ int disasm_file(char *filename)
     struct stat sbuf;
 
     if (stat(filename, &sbuf) < 0 || (infp = fopen(filename, "r")) == NULL) {
-        printf("Can't open %s\n", filename);
+        fprintf(stderr, "Can't open %s\n", filename);
         return 1;
     }
     filesize = sbuf.st_size;
@@ -142,7 +142,7 @@ int disasm_file(char *filename)
 
 void usage(void)
 {
-    printf("Usage: disasm [-k] [-a] [-s symfile] [[seg:off[#size] | filename]\n");
+    fprintf(stderr, "Usage: disasm [-k] [-a] [-s symfile] [[seg:off[#size] | filename]\n");
     exit(1);
 }
 
@@ -180,7 +180,7 @@ int main(int ac, char **av)
 
 #if __ia16__
     if (symfile && !sym_read_symbols(symfile)) {
-        printf("Can't open %s\n", symfile);
+        fprintf(stderr, "Can't open %s\n", symfile);
         exit(1);
     }
 
@@ -190,7 +190,7 @@ int main(int ac, char **av)
             || ioctl(fd, MEM_GETCS, &textseg) < 0
             || ioctl(fd, MEM_GETDS, &dataseg) < 0
             || ioctl(fd, MEM_GETFARTEXT, &ftextseg) < 0) {
-                printf("Can't get kernel segment values\n");
+                fprintf(stderr, "Can't get kernel segment values\n");
                 exit(1);
         }
         close(fd);
@@ -201,7 +201,7 @@ int main(int ac, char **av)
         sscanf(*av, "%lx:%lx#%ld", &seg, &off, &count);
 
         if (seg > 0xffff || off > 0xffff) {
-            printf("Error: segment or offset larger than 0xffff\n");
+            fprintf(stderr, "Error: segment or offset larger than 0xffff\n");
             return 1;
         }
         disasm_mem((int)seg, (int)off, (int)count);

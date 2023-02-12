@@ -3,13 +3,13 @@
 ELKS=../elks-gh
 CFLAGS=-Wall -O3
 
-all: sim-dos sim-elks dis8086 test testdos
+all: sim-dos sim-elks dis8086 nm86 test testdos
 
 clean:
 	-rm -f sim-dos sim-elks dis8086 opcodes
 
 test2: sim-elks
-	./sim-elks -a echo
+	./sim-elks -a echo1
 
 test: sim-elks
 	./sim-elks $(ELKS)/target/bin/banner ELKS Emulator
@@ -33,6 +33,9 @@ sim-elks: sim.c 8086.c disasm.c loadexec-elks.c syms.c colorinst.c
 
 dis8086: dis8086.c disasm.c syms.c
 	$(CC) $(CFLAGS) -D__far= -Wno-format -o $@ $^
+
+nm86: nm86.c syms.c
+	$(CC) $(CFLAGS) -o $@ $^
 
 opcodes: opcodes.S
 	ia16-elf-gcc -melks -ffreestanding -nostdlib -o $@ $^

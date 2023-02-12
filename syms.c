@@ -13,7 +13,7 @@
 #include <stdint.h>
 #include "syms.h"
 
-static unsigned char *syms;
+static unsigned char *syms;         // FIXME remove global
 struct minix_exec_hdr sym_hdr;
 
 #if __ia16__
@@ -43,7 +43,10 @@ unsigned char * noinstrument sym_read_exe_symbols(char *path)
     errno = 0;
     if (read(fd, &sym_hdr, sizeof(sym_hdr)) != sizeof(sym_hdr)
         || ((sym_hdr.type & 0xFFFF) != MAGIC)
-        || (sym_hdr.syms == 0 || sym_hdr.syms > 32767)
+        || sym_hdr.syms == 0
+#if __ia16__
+        || sym_hdr.syms > 32767
+#endif
         || (!ALLOC(s, (int)sym_hdr.syms))
         || (lseek(fd, -(int)sym_hdr.syms, SEEK_END) < 0)
         || (read(fd, s, (int)sym_hdr.syms) != (int)sym_hdr.syms)) {
@@ -69,7 +72,10 @@ unsigned char * noinstrument sym_read_symbols(char *path)
         return NULL;
     errno = 0;
     if (fstat(fd, &sbuf) < 0
-        || (sbuf.st_size == 0 || sbuf.st_size > 32767)
+        || sbuf.st_size == 0
+#if __ia16__
+        || sbuf.st_size > 32767
+#endif
         || (!ALLOC(s, (int)sbuf.st_size))
         || (read(fd, s, (int)sbuf.st_size) != (int)sbuf.st_size)) {
                 int e = errno;
@@ -80,6 +86,16 @@ unsigned char * noinstrument sym_read_symbols(char *path)
     close(fd);
     syms = s;
     return syms;
+}
+
+/* dealloate symbol table file in memory */
+void noinstrument sym_free(void)
+{
+#ifndef __ia16__        // FIXME ELKS uses sbrk()
+    if (syms)
+        free(syms);
+#endif
+    syms = NULL;
 }
 
 static int noinstrument type_text(unsigned char *p)

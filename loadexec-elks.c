@@ -163,11 +163,11 @@ void load_executable(const char *path, int argc, char **argv, char **envp)
     int stack = sysbrk + 4096;
     //int stack = 0xfffe;
     setSP(stack);
-    write_environ(argc, argv+1, envp);
+    write_environ(argc, argv, envp);
     //hexdump(sp(), &ram[physicalAddress(sp(), SS, false)], stack-sp(), 0);
     //int extra = stack - sp();
     if (!f_asmout)
-        printf("Text %x Data %x Stack %x\n", tseg, dseg+bseg+4096, 4096);
+        printf("Text %04x Data %04x Stack %04x\n", tseg, dseg+bseg+4096, 4096);
     setIP(entry);
 
     for (int i=dseg; i<dseg+bseg; i++)  /* clear BSS */

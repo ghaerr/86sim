@@ -1,3 +1,5 @@
+#ifndef DISASM_H_
+#define DISASM_H_
 /* ELKS disassembler header file */
 
 #ifndef noinstrument
@@ -32,3 +34,5 @@ struct dis {
 /* disasm.c */
 // use unsigned!
 int disasm(struct dis *d, int cs, int ip, int (*nextbyte)(int, int), int ds, int flags);
+
+#endif /* DISASM_H */

@@ -8,6 +8,9 @@ all: sim-dos sim-elks dis8086 test testdos
 clean:
 	-rm -f sim-dos sim-elks dis8086 opcodes
 
+test2: sim-elks
+	./sim-elks -a echo
+
 test: sim-elks
 	./sim-elks $(ELKS)/target/bin/banner ELKS Emulator
 	@#./sim-elks $(ELKS)/target/bin/echo This is a test
@@ -22,10 +25,10 @@ testdos: sim-dos
 	./sim-dos test.exe
 	@#./sim-dos hexdump.exe
 
-sim-dos: sim.c 8086.c disasm.c loadexec-dos.c
+sim-dos: sim.c 8086.c disasm.c loadexec-dos.c syms.c colorinst.c
 	$(CC) $(CFLAGS) -DMSDOS=1 -o $@ $^
 
-sim-elks: sim.c 8086.c disasm.c loadexec-elks.c
+sim-elks: sim.c 8086.c disasm.c loadexec-elks.c syms.c colorinst.c
 	$(CC) $(CFLAGS) -DELKS=1 -o $@ $^
 
 dis8086: dis8086.c disasm.c syms.c

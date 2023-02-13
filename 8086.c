@@ -103,12 +103,15 @@ DWord physicalAddress(Word offset, int seg, int write)
     segmentAddress = registers[8 + seg];
     a = (((DWord)segmentAddress << 4) + offset) /*& 0xfffff*/;
     if (a >= RAMSIZE)
-        runtimeError("Accessing address outside RAM %s %04x:%04x\n", segname[seg], segmentAddress, offset);
+        runtimeError("Accessing address outside RAM %s %04x:%04x\n",
+            segname[seg], segmentAddress, offset);
     flags = shadowRam[a];
     if (write && running && !(flags & fWrite))
-        runtimeError("Writing disallowed address %s %04x:%04x\n", segname[seg], segmentAddress, offset);
+        runtimeError("Writing disallowed address %s %04x:%04x\n",
+            segname[seg], segmentAddress, offset);
     if (!write && !(flags & fRead))
-        runtimeError("Reading uninitialized address %s %04x:%04x\n", segname[seg], segmentAddress, offset);
+        runtimeError("Reading uninitialized address %s %04x:%04x\n",
+            segname[seg], segmentAddress, offset);
     if (running)
         shadowRam[a] |= fRead;
     return a;

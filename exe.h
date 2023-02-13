@@ -48,6 +48,8 @@ struct exe {
     uint16_t              dataseg;
 };
 
+#define ELKSMAGIC   0x0301      /* magic number for ELKS executable progs */
+
 /* loader entry points */
 void load_executable(struct exe *e, const char *filename, int argc, char **argv, char **envp);
 

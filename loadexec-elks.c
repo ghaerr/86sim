@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <stdarg.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include "sim.h"
@@ -89,9 +90,12 @@ static void write_environ(int argc, char **argv, char **envp)
     writeWord(0, pip, SS);  pip += 2;
 }
 
-static void error(const char* operation)
+static void loadError(const char *msg, ...)
 {
-    fprintf(stderr, "Error %s file %s: %s\n", operation, filename, strerror(errno));
+    va_list args;
+    va_start(args, msg);
+    vfprintf(stderr, msg, args);
+    va_end(args);
     exit(1);
 }
 
@@ -117,43 +121,45 @@ static void load_bios_irqs(void)
 void load_executable(struct exe *e, const char *path, int argc, char **argv, char **envp)
 {
     filename = path;
-    FILE* fp = fopen(filename, "rb");
-    if (fp == 0)
-        error("opening");
-    if (fseek(fp, 0, SEEK_END) != 0)
-        error("seeking");
-    int filesize = ftell(fp);
-    if (filesize == -1)
-        error("telling");
-    if (fseek(fp, 0, SEEK_SET) != 0)
-        error("seeking");
+    struct stat sbuf;
 
-    loadSegment = 0x1000 - 2;
+    int fd = open(path, O_RDONLY);
+    if (fd < 0)
+        loadError("Can't open %s\n", path);
+    if (read(fd, &e->aout, sizeof(e->aout)) != sizeof(e->aout))
+        loadError("Can't read header: %s\n", path);
+    if ((e->aout.type & 0xFFFF) != ELKSMAGIC)
+        loadError("%s: not ELKS executable\n");
+    if (e->aout.hlen != sizeof(e->aout))
+        loadError("Medium model programs not yet supported: %s\n", path);
+    if (fstat(fd, &sbuf) < 0)
+        loadError("Can't stat %s\n", path);
+    size_t filesize = sbuf.st_size - e->aout.syms - e->aout.hlen;
+
+    loadSegment = 0x1000;
     int loadOffset = loadSegment << 4;
-    if (filesize > 0x100000 - loadOffset)
-        filesize = 0x100000 - loadOffset;
-    if (fread(&ram[loadOffset], filesize, 1, fp) != 1)
-        error("reading");
-    fclose(fp);
+    if (filesize > RAMSIZE - loadOffset)
+        loadError("Not enough memory to load %s, needs %d bytes have %d\n",
+            path, filesize, RAMSIZE);
+    if (read(fd, &ram[loadOffset], filesize) != filesize)
+        loadError("Error reading executable: %s\n", path);
+    close(fd);
 
-    // FIXME check hlen < 0x20, unset hdr access after, check tseg & 15
-    setES(loadSegment);
-    setShadowFlags(0, ES, 0x20, fRead);
-    int hlen = readWordSeg(0x04, ES);
-    int version = readWordSeg(0x06, ES);
-    int tseg = readWordSeg(0x08, ES);
-    int dseg = readWordSeg(0x0C, ES);
-    int bseg = readWordSeg(0x10, ES);
-    int entry = readWordSeg(0x14, ES);
-    int chmem = readWordSeg(0x18, ES);
-    int minstack = readWordSeg(0x1C, ES);
+    unsigned int tseg = e->aout.tseg;
+    unsigned int dseg = e->aout.dseg;
+    unsigned int bseg = e->aout.bseg;
+    unsigned int entry = e->aout.entry;
+    unsigned int chmem = e->aout.chmem;
+    unsigned int minstack = e->aout.minstack;
     if (f_verbose)
-        printf("hlen %x version %x tseg %04x dseg %04x bseg %04x entry %x chmem %x minstack %x\n",
-        hlen, version, tseg, dseg, bseg, entry, chmem, minstack);
-    setES(loadSegment + 2);
-    setShadowFlags(0, ES, filesize-0x20+bseg+8192, fRead|fWrite);
-    setCS(loadSegment + (hlen>>4));
-    setSS(loadSegment + (hlen>>4) + ((tseg + 15) >> 4));
+        printf("tseg %04x dseg %04x bseg %04x entry %x chmem %x minstack %x\n",
+            tseg, dseg, bseg, entry, chmem, minstack);
+    setES(loadSegment);
+    //FIXME don't allow stack reads before written
+    setShadowFlags(0, ES, filesize+bseg+8192, fRead|fWrite);
+    setCS(loadSegment);
+    setIP(entry);
+    setSS(loadSegment + ((tseg + 15) >> 4));
     setDS(ss());                /* DS = SS */
     sysbrk = dseg + bseg + 4096;
     int stack = sysbrk + 4096;
@@ -164,7 +170,6 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
     //int extra = stack - sp();
     if (f_verbose)
         printf("Text %04x Data %04x Stack %04x\n", tseg, dseg+bseg+4096, 4096);
-    setIP(entry);
 
     for (int i=dseg; i<dseg+bseg; i++)  /* clear BSS */
         writeByte(0, i, DS);
@@ -204,6 +209,7 @@ void handle_intcall(int intno)
     case 17:            // brk
         printf("BRK old %x new %x\n", sysbrk, bx());
         sysbrk = bx();
+        //setShadowFlags on new break
         setAX(0);
         break;
     case 69:            // sbrk

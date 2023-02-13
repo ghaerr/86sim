@@ -12,7 +12,7 @@ test2: sim-elks
 	./sim-elks -a echo1
 
 test: sim-elks
-	./sim-elks $(ELKS)/target/bin/banner ELKS Emulator
+	./sim-elks -v $(ELKS)/target/bin/banner ELKS Emulator
 	@#./sim-elks $(ELKS)/target/bin/echo This is a test
 	@#./sim-elks $(ELKS)/target/bin/printenv
 	@#./sim-elks $(ELKS)/target/bin/env
@@ -22,7 +22,7 @@ test: sim-elks
 	@#./sim-elks $(ELKS)/target/bin/chmem $(ELKS)/target/bin/login
 
 testdos: sim-dos
-	./sim-dos test.exe
+	./sim-dos -va test.exe
 	@#./sim-dos hexdump.exe
 
 sim-dos: sim.c 8086.c disasm.c dissim.c loadexec-dos.c syms.c colorinst.c

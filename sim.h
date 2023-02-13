@@ -36,6 +36,9 @@ Word readWordSeg(Word offset, int seg);
 void writeByte(Byte value, Word offset, int seg);
 void writeWord(Word value, Word offset, int seg);
 DWord physicalAddress(Word offset, int seg, int write);
+#define fRead   0x01
+#define fWrite  0x02
+void setShadowFlags(Word offset, int seg, int len, int flags);
 
 /* register access functions */
 static inline Word ax() { return registers[0]; }

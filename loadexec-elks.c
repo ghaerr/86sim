@@ -107,6 +107,7 @@ static void set_entry_registers(void)
     setBP(0x0000);
     setSI(0x0000);
     setDI(0x0000);
+    setFlags(0x3202);
 }
 
 static void load_bios_irqs(void)
@@ -135,13 +136,9 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
         error("reading");
     fclose(fp);
 
-    setFlags(0x3202);
     // FIXME check hlen < 0x20, unset hdr access after, check tseg & 15
-    for (int i = 0; i < 0x20; ++i) {
-        setES(loadSegment + (i >> 4));
-        physicalAddress(i & 15, ES, true);
-    }
     setES(loadSegment);
+    setShadowFlags(0, ES, 0x20, fRead);
     int hlen = readWordSeg(0x04, ES);
     int version = readWordSeg(0x06, ES);
     int tseg = readWordSeg(0x08, ES);
@@ -151,12 +148,10 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
     int chmem = readWordSeg(0x18, ES);
     int minstack = readWordSeg(0x1C, ES);
     if (f_verbose)
-        printf("hlen %x version %x tseg %x dseg %x bseg %x entry %x chmem %x minstack %x\n",
+        printf("hlen %x version %x tseg %04x dseg %04x bseg %04x entry %x chmem %x minstack %x\n",
         hlen, version, tseg, dseg, bseg, entry, chmem, minstack);
-    for (int i = hlen; i < filesize+bseg+8192; ++i) {
-        setES(loadSegment + (i >> 4));
-        physicalAddress(i & 15, ES, true);
-    }
+    setES(loadSegment + 2);
+    setShadowFlags(0, ES, filesize-0x20+bseg+8192, fRead|fWrite);
     setCS(loadSegment + (hlen>>4));
     setSS(loadSegment + (hlen>>4) + ((tseg + 15) >> 4));
     setDS(ss());                /* DS = SS */

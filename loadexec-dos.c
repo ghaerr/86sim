@@ -23,19 +23,21 @@ static int fileDescriptorCount = 6;
 static void write_environ(int argc, char **argv, char **envp)
 {
     int envSegment = loadSegment - 0x1c;
+    int i;
 
     setES(envSegment);
+    setShadowFlags(0, ES, 0x100, fRead);
     writeByte(0, 0, ES);  // No environment for now
     writeWord(1, 1, ES);
-    int i;
     for (i = 0; filename[i] != 0; ++i)
         writeByte(filename[i], i + 3, ES);
     if (i + 4 >= 0xc0) {
-        fprintf(stderr, "Program name too long.\n");
+        fprintf(stderr, "Program name too long.\n");    // FIXME
         exit(1);
     }
     writeWord(0, i + 3, ES);
     setES(loadSegment - 0x10);
+    setShadowFlags(0, ES, 0x0100, fRead);
     writeWord(envSegment, 0x2c, ES);
     i = 0x81;
     for (int a = 2; a < argc; ++a) {
@@ -64,12 +66,12 @@ static void write_environ(int argc, char **argv, char **envp)
         }
     }
     if (i > 0xff) {
-        fprintf(stderr, "Arguments too long.\n");
+        fprintf(stderr, "Arguments too long.\n");   // FIXME
         exit(1);
     }
     writeWord(0x9fff, 2, ES);
     writeByte(i - 0x81, 0x80, ES);
-    writeByte(13, i, ES);
+    writeByte('\r', i, ES);
 }
 
 static void* alloc(size_t bytes)
@@ -106,7 +108,7 @@ static void error(const char* operation)
 static void set_entry_registers(void)
 {
     if (f_verbose)
-        printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", cs(), getIP(), ds(), ss(), sp());
+        printf("CS:IP %04x:%04x DS %04x SS:SP %04x:%04x\n", cs(), getIP(), ds(), ss(), sp());
     setES(loadSegment - 0x10);
     setAX(0x0000);
     setBX(0x0000);
@@ -115,6 +117,7 @@ static void set_entry_registers(void)
     setBP(0x091C);
     setSI(0x0100);
     setDI(0xFFFE);
+    setFlags(0x0002);
 }
 
 static void load_bios_irqs(void)
@@ -123,14 +126,17 @@ static void load_bios_irqs(void)
     // and parts of the BIOS ROM area with stuff, for the benefit of the far
     // pointer tests.
     setES(0x0000);
+    setShadowFlags(0x0080, ES, 0x0004, fRead);
     writeWord(0x0000, 0x0080, ES);
     writeWord(0xFFFF, 0x0082, ES);
+    setShadowFlags(0x0400, ES, 0x00FF, fRead);
     writeWord(0x0058, 0x046C, ES);
     writeWord(0x000C, 0x046E, ES);
     writeByte(0x00, 0x0470, ES);
     setES(0xF000);
+    setShadowFlags(0xFF00, ES, 0x0100, fRead);
     for (int i = 0; i < 0x100; i += 2)
-        writeWord(0xF4F4, 0xFF00 + (unsigned)i, ES);
+        writeWord(0xF4F4, 0xFF00 + i, ES);
     // We need some variety in the ROM BIOS content...
     writeByte(0xEA, 0xFFF0, ES);
     writeWord(0xFFF0, 0xFFF1, ES);
@@ -147,7 +153,7 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
         error("opening");
     if (fseek(fp, 0, SEEK_END) != 0)
         error("seeking");
-    int filesize = ftell(fp);
+    filesize = ftell(fp);
     if (filesize == -1)
         error("telling");
     if (fseek(fp, 0, SEEK_SET) != 0)
@@ -162,12 +168,9 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
     fclose(fp);
 
     setIP(0x0100);
-    setFlags(0x0002);
+    setES(loadSegment);
+    setShadowFlags(0, ES, filesize, fRead|fWrite);
     write_environ(argc, argv, envp);
-    for (int i = 0; i < filesize; ++i) {
-        setES(loadSegment + (i >> 4));
-        physicalAddress(i & 15, ES, true);
-    }
     setES(loadSegment - 0x10);
     if (filesize >= 2 && readWordSeg(0x100, ES) == 0x5a4d) {  // .exe file?
         if (filesize < 0x21) {
@@ -181,7 +184,7 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
         int headerLength = headerParagraphs << 4;
         if (exeLength > filesize || headerLength > filesize ||
             headerLength > exeLength) {
-            fprintf(stderr, "%s is corrupt\n", filename);
+            fprintf(stderr, "%s is corrupt\n", filename);   // FIXME
             exit(1);
         }
         int relocationCount = readWordSeg(0x106, ES);
@@ -217,6 +220,10 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
     }
     // Some testcases copy uninitialized stack data, so mark as initialized
     // any locations that could possibly be stack.
+    //if (a < ((DWord)loadSegment << 4) - 0x100 && running)
+         //bad = true;
+    setShadowFlags(0, SS, 0x10000, fRead|fWrite);    // FIXME only usable stack
+#if 0
     if (sp()) {
         Word d = 0;
         if (((DWord)ss() << 4) < stackLow)
@@ -234,7 +241,7 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
             ++d;
         } while (d != 0);
     }
-
+#endif
     load_bios_irqs();
     set_entry_registers();
 }
@@ -260,7 +267,7 @@ char* initString(Word offset, int seg, int write, int buffer, int bytes)
 }
 char* dsdxparms(int write, int bytes)
 {
-    return initString(dx(), 3, write, 0, bytes);
+    return initString(dx(), DS, write, 0, bytes);
 }
 char *dsdx()
 {
@@ -468,7 +475,7 @@ void handle_intcall(int intno)
                     case 0x2147:
                         if (getcwd(pathBuffers[0], 64) != 0) {
                             setCF(false);
-                            initString(si(), 3, true, 0, 0x10000);
+                            initString(si(), DS, true, 0, 0x10000);
                         }
                         else {
                             setCF(true);
@@ -500,7 +507,7 @@ void handle_intcall(int intno)
                         exit(0);
                         break;
                     case 0x2156:
-                        if (rename(dsdx(), initString(di(), 0, false, 1, 0x10000)) == 0)
+                        if (rename(dsdx(), initString(di(), ES, false, 1, 0x10000)) == 0)
                             setCF(false);
                         else {
                             setCF(true);

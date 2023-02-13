@@ -21,7 +21,7 @@ Word registers[12];
 Byte* byteRegisters[8];
 Byte ram[RAMSIZE];
 
-static Byte initialized[RAMSIZE / 8];
+static Byte shadowRam[RAMSIZE];
 static bool useMemory;
 static Word address;
 static Word ip;
@@ -51,8 +51,8 @@ static inline void setRB(Byte value) { *byteRegisters[opcode & 7] = value; }
 
 int initMachine(void)
 {
-    memset(ram, 0, RAMSIZE);
-    memset(initialized, 0, RAMSIZE / 8);
+    memset(ram, 0, sizeof(ram));
+    memset(shadowRam, 0, sizeof(shadowRam));
 
     segment = 0;
     segmentOverride = -1;
@@ -75,29 +75,42 @@ void initExecute(void)
     repeating = false;
 }
 
+void setShadowFlags(Word offset, int seg, int len, int flags)
+{
+    DWord a = (((DWord)registers[8 + seg] << 4) + offset) & 0xfffff;
+    int i;
+
+    printf("setShadow %04x:%04x len %05x to %x\n", registers[8+seg], offset, len, flags);
+    for (i=0; i<len; i++) {
+        if (a < RAMSIZE)
+            shadowRam[a++] = flags;
+    }
+}
+
 DWord physicalAddress(Word offset, int seg, int write)
 {
+    Word segmentAddress;
+    DWord a;
+    int flags;
+    static char *segname[4] = { "ES", "CS", "SS", "DS" };
+
     ios++;
     if (seg == -1) {
         seg = segment;
         if (segmentOverride != -1)
             seg = segmentOverride;
     }
-    Word segmentAddress = registers[8 + seg];
-    DWord a = (((DWord)segmentAddress << 4) + offset) & 0xfffff;
-    bool bad = false;
-    if (write) {
-        if (a < ((DWord)loadSegment << 4) - 0x100 && running)
-             bad = true;
-        initialized[a >> 3] |= 1 << (a & 7);
-    }
-    if ((initialized[a >> 3] & (1 << (a & 7))) == 0 || bad) {
-        fprintf(stderr, "Accessing invalid address %04x:%04x.\n",
-            segmentAddress, offset);
-#if MSDOS
-        runtimeError("");
-#endif
-    }
+    segmentAddress = registers[8 + seg];
+    a = (((DWord)segmentAddress << 4) + offset) /*& 0xfffff*/;
+    if (a >= RAMSIZE)
+        runtimeError("Accessing address outside RAM %s %04x:%04x\n", segname[seg], segmentAddress, offset);
+    flags = shadowRam[a];
+    if (write && running && !(flags & fWrite))
+        runtimeError("Writing disallowed address %s %04x:%04x\n", segname[seg], segmentAddress, offset);
+    if (!write && !(flags & fRead))
+        runtimeError("Reading uninitialized address %s %04x:%04x\n", segname[seg], segmentAddress, offset);
+    if (running)
+        shadowRam[a] |= fRead;
     return a;
 }
 

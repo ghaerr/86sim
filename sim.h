@@ -18,8 +18,6 @@ extern Byte ram[RAMSIZE];
 /* loader globals */
 extern Word loadSegment;
 extern DWord stackLow;
-/* loader entry points */
-void load_executable(const char *filename, int argc, char **argv, char **envp);
 
 /* emulator operation */
 int initMachine(void);

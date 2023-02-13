@@ -15,62 +15,18 @@
 #include <linuxmt/mem.h>
 #include "instrument.h"
 #endif
+#include "exe.h"
 #include "syms.h"
 #include "disasm.h"
 
 #define KSYMTAB     "/lib/system.sym"
 #define MAGIC       0x0301  /* magic number for executable progs */
 
-static char f_asmout = 0;   /* output gnu as compatible input */
-static char f_octal;
-static char f_ksyms;
-static char f_syms;
-static unsigned short textseg, ftextseg, dataseg;
+static int f_asmout;
+static int f_octal;
+static int f_ksyms;
+static struct exe e;
 static struct dis d;
-
-char * noinstrument getsymbol(int seg, int offset)
-{
-    static char buf[8];
-
-    if (f_ksyms) {
-        if (seg == textseg)
-            return sym_text_symbol(offset, 1);
-        if (seg == ftextseg)
-            return sym_ftext_symbol(offset, 1);
-        if (seg == dataseg)
-            return sym_data_symbol(offset, 1);
-    }
-    if (f_syms) {
-        if (seg == dataseg)
-            return sym_data_symbol(offset, 1);
-        return sym_text_symbol(offset, 1);
-    }
-
-    sprintf(buf, f_asmout? "0x%04x": "%04x", offset);
-    return buf;
-}
-
-char * noinstrument getsegsymbol(int seg)
-{
-    static char buf[8];
-
-    if (f_ksyms) {
-        if (seg == textseg)
-            return ".text";
-        if (seg == ftextseg)
-            return ".fartext";
-        if (seg == dataseg)
-            return ".data";
-    }
-    if (f_syms) {
-        if (seg == dataseg)
-            return ".data";
-        return ".text";
-    }
-
-    sprintf(buf, f_asmout? "0x%04x": "%04x", seg);
-    return buf;
-}
 
 #define peekb(cs,ip)  (*(unsigned char __far *)(((unsigned long)(cs) << 16) | (int)(ip)))
 
@@ -87,9 +43,10 @@ void disasm_mem(int cs, int ip, int opcount)
     int flags = f_asmout? fDisInst | fDisAsmSource : fDisCS | fDisIP | fDisBytes | fDisInst;
     if (f_octal) flags |= fDisOctal;
     if (!opcount) opcount = 32767;
-    if (!f_asmout) printf("Disassembly of %s:\n", getsymbol(cs, (int)ip));
+    if (!f_asmout) printf("Disassembly of %s:\n", getsymbol(&d, cs, (int)ip));
+    e.textseg = cs;
     for (n=0; n<opcount; n++) {
-        nextip = disasm(&d, cs, ip, nextbyte_mem, dataseg, flags);
+        nextip = disasm(&d, e.textseg, ip, nextbyte_mem, e.dataseg, flags);
         printf("%s\n", d.buf);
         if (opcount == 32767 && peekb(cs, ip) == 0xc3)  /* RET */
             break;
@@ -121,18 +78,17 @@ int disasm_file(char *filename)
     }
     filesize = sbuf.st_size;
 
-    f_syms = sym_read_exe_symbols(filename)? 1: 0;
-    if (f_syms || (sym_hdr.type & 0xFFFF) == MAGIC) {
-            fseek(infp, sym_hdr.hlen, SEEK_SET);
-            filesize = sym_hdr.tseg;    /* FIXME no .fartext yet */
-            textseg = 0;
-            dataseg = 1;
+    if (sym_read_exe_symbols(&e, filename) || (e.aout.type & 0xFFFF) == MAGIC) {
+            fseek(infp, e.aout.hlen, SEEK_SET);
+            filesize = e.aout.tseg;    /* FIXME no .fartext yet */
+            e.textseg = 0;
+            e.dataseg = 1;
     }
 
     int flags = f_asmout? fDisInst | fDisAsmSource : fDisAddr | fDisBytes | fDisInst;
     if (f_octal) flags |= fDisOctal;
     while (ip < filesize) {
-        nextip = disasm(&d, textseg, ip, nextbyte_file, dataseg, flags);
+        nextip = disasm(&d, e.textseg, ip, nextbyte_file, e.dataseg, flags);
         printf("%s\n", d.buf);
         ip = nextip;
     }
@@ -142,7 +98,7 @@ int disasm_file(char *filename)
 
 void usage(void)
 {
-    fprintf(stderr, "Usage: disasm [-k] [-a] [-s symfile] [[seg:off[#size] | filename]\n");
+    fprintf(stderr, "Usage: disasm [-k] [-s symfile] [-A] [[seg:off[#size] | filename]\n");
     exit(1);
 }
 
@@ -153,9 +109,9 @@ int main(int ac, char **av)
     char *symfile = NULL;
     long count = 22;
 
-    while ((ch = getopt(ac, av, "kaos:")) != -1) {
+    while ((ch = getopt(ac, av, "kAos:")) != -1) {
         switch (ch) {
-        case 'a':
+        case 'A':               /* output gnu as compatible input */
             f_asmout = 1;
             break;
         case 'o':
@@ -166,7 +122,6 @@ int main(int ac, char **av)
             symfile = KSYMTAB;
             break;
         case 's':
-            f_syms = 1;
             symfile = optarg;
             break;
         default:
@@ -178,18 +133,17 @@ int main(int ac, char **av)
     if (ac < 1)
         usage();
 
-#if __ia16__
-    if (symfile && !sym_read_symbols(symfile)) {
+    if (symfile && !sym_read_symbols(&e, symfile)) {
         fprintf(stderr, "Can't open %s\n", symfile);
         exit(1);
     }
-
+#if __ia16__
     if (f_ksyms) {
         int fd = open("/dev/kmem", O_RDONLY);
         if (fd < 0
-            || ioctl(fd, MEM_GETCS, &textseg) < 0
-            || ioctl(fd, MEM_GETDS, &dataseg) < 0
-            || ioctl(fd, MEM_GETFARTEXT, &ftextseg) < 0) {
+            || ioctl(fd, MEM_GETCS, &e.textseg) < 0
+            || ioctl(fd, MEM_GETDS, &e.dataseg) < 0
+            || ioctl(fd, MEM_GETFARTEXT, &e.ftextseg) < 0) {
                 fprintf(stderr, "Can't get kernel segment values\n");
                 exit(1);
         }
@@ -197,6 +151,7 @@ int main(int ac, char **av)
     }
 #endif
 
+    d.e = &e;
     if (strchr(*av, ':')) {
         sscanf(*av, "%lx:%lx#%ld", &seg, &off, &count);
 

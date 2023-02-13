@@ -13,25 +13,21 @@
 #include <stdint.h>
 #include "syms.h"
 
-static unsigned char *syms;         // FIXME remove global
-struct minix_exec_hdr sym_hdr;
-
 #if __ia16__
 #define ALLOC(s,n)    ((int)(s = sbrk(n)) != -1)
 #else
 #define ALLOC(s,n)    ((s = malloc(n)) !=  NULL)
-char * __program_filename;
 #endif
 
-#define MAGIC       0x0301  /* magic number for executable progs */
+#define MAGIC       0x0301  /* magic number for ELKS executable progs */
 
 /* read symbol table from executable into memory */
-unsigned char * noinstrument sym_read_exe_symbols(char *path)
+unsigned char * noinstrument sym_read_exe_symbols(struct exe *e, char *path)
 {
     int fd;
     unsigned char *s;
 
-    if (syms) return syms;
+    if (e->syms) return e->syms;
     if ((fd = open(path, O_RDONLY)) < 0) {
 #if __ia16__
         char fullpath[128];
@@ -41,33 +37,33 @@ unsigned char * noinstrument sym_read_exe_symbols(char *path)
                 return NULL;
     }
     errno = 0;
-    if (read(fd, &sym_hdr, sizeof(sym_hdr)) != sizeof(sym_hdr)
-        || ((sym_hdr.type & 0xFFFF) != MAGIC)
-        || sym_hdr.syms == 0
+    if (read(fd, &e->aout, sizeof(e->aout)) != sizeof(e->aout)
+        || ((e->aout.type & 0xFFFF) != MAGIC)
+        || e->aout.syms == 0
 #if __ia16__
-        || sym_hdr.syms > 32767
+        || e->aout.syms > 32767
 #endif
-        || (!ALLOC(s, (int)sym_hdr.syms))
-        || (lseek(fd, -(int)sym_hdr.syms, SEEK_END) < 0)
-        || (read(fd, s, (int)sym_hdr.syms) != (int)sym_hdr.syms)) {
+        || (!ALLOC(s, (int)e->aout.syms))
+        || (lseek(fd, -(int)e->aout.syms, SEEK_END) < 0)
+        || (read(fd, s, (int)e->aout.syms) != (int)e->aout.syms)) {
                 int e = errno;
                 close(fd);
                 errno = e;
                 return NULL;
     }
     close(fd);
-    syms = s;
-    return syms;
+    e->syms = s;
+    return s;
 }
 
 /* read symbol table file into memory */
-unsigned char * noinstrument sym_read_symbols(char *path)
+unsigned char * noinstrument sym_read_symbols(struct exe *e, char *path)
 {
     int fd;
     unsigned char *s;
     struct stat sbuf;
 
-    if (syms) return syms;
+    if (e->syms) return e->syms;
     if ((fd = open(path, O_RDONLY)) < 0)
         return NULL;
     errno = 0;
@@ -84,18 +80,18 @@ unsigned char * noinstrument sym_read_symbols(char *path)
                 return NULL;
     }
     close(fd);
-    syms = s;
-    return syms;
+    e->syms = s;
+    return s;
 }
 
 /* dealloate symbol table file in memory */
-void noinstrument sym_free(void)
+void noinstrument sym_free(struct exe *e)
 {
 #ifndef __ia16__        // FIXME ELKS uses sbrk()
-    if (syms)
-        free(syms);
+    if (e->syms)
+        free(e->syms);
 #endif
-    syms = NULL;
+    e->syms = NULL;
 }
 
 static int noinstrument type_text(unsigned char *p)
@@ -116,13 +112,13 @@ static int noinstrument type_data(unsigned char *p)
 }
 
 /* map .text address to function start address */
-addr_t  noinstrument sym_fn_start_address(addr_t addr) 
+addr_t  noinstrument sym_fn_start_address(struct exe *e, addr_t addr)
 {
     unsigned char *p, *lastp;
 
-    if (!syms && !sym_read_exe_symbols(__program_filename)) return -1;
+    if (!e->syms) return -1;
 
-    lastp = syms;
+    lastp = e->syms;
     for (p = next(lastp); ; lastp = p, p = next(p)) {
         if (!type_text(p) || ((unsigned short)addr < *(unsigned short *)(&p[ADDR])))
             break;
@@ -131,19 +127,19 @@ addr_t  noinstrument sym_fn_start_address(addr_t addr)
 }
 
 /* convert address to symbol string */
-static char * noinstrument sym_string(addr_t addr, int exact,
+static char * noinstrument sym_string(struct exe *e, addr_t addr, int exact,
     int (*istype)(unsigned char *p))
 {
     unsigned char *p, *lastp;
     static char buf[64];
 
-    if (!syms && !sym_read_exe_symbols(__program_filename)) {
+    if (!e->syms) {
 hex:
         sprintf(buf, "%.4x", (unsigned int)addr);
         return buf;
     }
 
-    lastp = syms;
+    lastp = e->syms;
     while (!istype(lastp)) {
         lastp = next(lastp);
         if (!lastp[TYPE])
@@ -162,21 +158,21 @@ hex:
 }
 
 /* convert .text address to symbol */
-char * noinstrument sym_text_symbol(addr_t addr, int exact)
+char * noinstrument sym_text_symbol(struct exe *e, addr_t addr, int exact)
 {
-    return sym_string(addr, exact, type_text);
+    return sym_string(e, addr, exact, type_text);
 }
 
 /* convert .fartext address to symbol */
-char * noinstrument sym_ftext_symbol(addr_t addr, int exact)
+char * noinstrument sym_ftext_symbol(struct exe *e, addr_t addr, int exact)
 {
-    return sym_string(addr, exact, type_ftext);
+    return sym_string(e, addr, exact, type_ftext);
 }
 
 /* convert .data address to symbol */
-char * noinstrument sym_data_symbol(addr_t addr, int exact)
+char * noinstrument sym_data_symbol(struct exe *e, addr_t addr, int exact)
 {
-    return sym_string(addr, exact, type_data);
+    return sym_string(e, addr, exact, type_data);
 }
 
 #if 0
@@ -186,8 +182,8 @@ static int noinstrument type_any(unsigned char *p)
 }
 
 /* convert (non-segmented local IP) address to symbol */
-char * noinstrument sym_symbol(addr_t addr, int exact)
+char * noinstrument sym_symbol(struct exe *e, addr_t addr, int exact)
 {
-    return sym_string(addr, exact, type_any);
+    return sym_string(e, addr, exact, type_any);
 }
 #endif

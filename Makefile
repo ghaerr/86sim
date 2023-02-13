@@ -25,13 +25,13 @@ testdos: sim-dos
 	./sim-dos test.exe
 	@#./sim-dos hexdump.exe
 
-sim-dos: sim.c 8086.c disasm.c loadexec-dos.c syms.c colorinst.c
+sim-dos: sim.c 8086.c disasm.c dissim.c loadexec-dos.c syms.c colorinst.c
 	$(CC) $(CFLAGS) -DMSDOS=1 -o $@ $^
 
-sim-elks: sim.c 8086.c disasm.c loadexec-elks.c syms.c colorinst.c
+sim-elks: sim.c 8086.c disasm.c dissim.c loadexec-elks.c syms.c colorinst.c
 	$(CC) $(CFLAGS) -DELKS=1 -o $@ $^
 
-dis8086: dis8086.c disasm.c syms.c
+dis8086: dis8086.c disasm.c dissim.c syms.c colorinst.c
 	$(CC) $(CFLAGS) -D__far= -Wno-format -o $@ $^
 
 nm86: nm86.c syms.c

@@ -7,11 +7,12 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include "sim.h"
+#include "exe.h"
 
 /* loader globals */
 Word loadSegment;
 DWord stackLow;
-int f_asmout;
+extern int f_verbose;
 
 static const char* filename;
 static int filesize;
@@ -104,7 +105,7 @@ static void error(const char* operation)
 
 static void set_entry_registers(void)
 {
-    if (!f_asmout)
+    if (f_verbose)
         printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", cs(), getIP(), ds(), ss(), sp());
     setES(loadSegment - 0x10);
     setAX(0x0000);
@@ -136,7 +137,7 @@ static void load_bios_irqs(void)
     writeWord(0xF000, 0xFFF3, ES);
 }
 
-void load_executable(const char *path, int argc, char **argv, char **envp)
+void load_executable(struct exe *e, const char *path, int argc, char **argv, char **envp)
 {
     init();
 
@@ -491,9 +492,11 @@ void handle_intcall(int intno)
                             "es = 0x%04x", (unsigned)bx(), (unsigned)es());
                         break;
                     case 0x214c:
-                        printf("\n*** Bytes: %i\n", filesize);
-                        //printf("*** Cycles: %i\n", ios);
-                        printf("*** EXIT code %i\n", al());
+                        if (f_verbose) {
+                            printf("\n*** Bytes: %i\n", filesize);
+                            //printf("*** Cycles: %i\n", ios);
+                            printf("*** EXIT code %i\n", al());
+                        }
                         exit(0);
                         break;
                     case 0x2156:

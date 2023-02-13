@@ -6,10 +6,6 @@
 #define noinstrument    __attribute__((no_instrument_function))
 #endif
 
-/* to be defined by caller of disasm() */
-char * noinstrument getsymbol(int seg, int offset);
-char * noinstrument getsegsymbol(int seg);
-
 struct dis {
     unsigned int cs;
     unsigned int ip;
@@ -19,6 +15,7 @@ struct dis {
     unsigned int col;
     int (*getbyte)(int, int);
     char *s;
+    struct exe *e;
     char buf[128];
 };
 
@@ -34,5 +31,9 @@ struct dis {
 /* disasm.c */
 // use unsigned!
 int disasm(struct dis *d, int cs, int ip, int (*nextbyte)(int, int), int ds, int flags);
+
+/* to be defined by caller of disasm() */
+char * noinstrument getsymbol(struct dis *d, int seg, int offset);
+char * noinstrument getsegsymbol(struct dis *d, int seg);
 
 #endif /* DISASM_H */

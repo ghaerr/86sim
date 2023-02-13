@@ -7,11 +7,12 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include "sim.h"
+#include "exe.h"
 
 /* loader globals */
 Word loadSegment;
 DWord stackLow;
-int f_asmout;
+extern int f_verbose;
 
 static const char* filename;
 static unsigned int sysbrk;
@@ -46,7 +47,7 @@ static void write_environ(int argc, char **argv, char **envp)
         + envp_count * 2 + 2    /* envp */
         + envp_len;
 
-    if (!f_asmout)
+    if (f_verbose)
         printf("argv = (%d,%d), envp=(%d,%d), size=0x%x\n",
             argv_count, argv_len, envp_count, envp_len, stack_bytes);
 
@@ -96,8 +97,8 @@ static void error(const char* operation)
 
 static void set_entry_registers(void)
 {
-    if (!f_asmout)
-        printf("CS:IP %x:%x DS %x SS:SP %x:%x\n", cs(), getIP(), ds(), ss(), sp());
+    if (f_verbose) printf("CS:IP %x:%x DS %x SS:SP %x:%x\n",
+        cs(), getIP(), ds(), ss(), sp());
     setES(ds());        /* ES = DS */
     setAX(0x0000);
     setBX(0x0000);
@@ -112,7 +113,7 @@ static void load_bios_irqs(void)
 {
 }
 
-void load_executable(const char *path, int argc, char **argv, char **envp)
+void load_executable(struct exe *e, const char *path, int argc, char **argv, char **envp)
 {
     filename = path;
     FILE* fp = fopen(filename, "rb");
@@ -149,7 +150,7 @@ void load_executable(const char *path, int argc, char **argv, char **envp)
     int entry = readWordSeg(0x14, ES);
     int chmem = readWordSeg(0x18, ES);
     int minstack = readWordSeg(0x1C, ES);
-    if (!f_asmout)
+    if (f_verbose)
         printf("hlen %x version %x tseg %x dseg %x bseg %x entry %x chmem %x minstack %x\n",
         hlen, version, tseg, dseg, bseg, entry, chmem, minstack);
     for (int i = hlen; i < filesize+bseg+8192; ++i) {
@@ -166,7 +167,7 @@ void load_executable(const char *path, int argc, char **argv, char **envp)
     write_environ(argc, argv, envp);
     //hexdump(sp(), &ram[physicalAddress(sp(), SS, false)], stack-sp(), 0);
     //int extra = stack - sp();
-    if (!f_asmout)
+    if (f_verbose)
         printf("Text %04x Data %04x Stack %04x\n", tseg, dseg+bseg+4096, 4096);
     setIP(entry);
 
@@ -188,12 +189,11 @@ void handle_intcall(int intno)
     /* syscall args: BX, CX, DX, DI, SI */
     switch (ax()) {
     case 1:             // exit
-        printf("EXIT %d\n", bx());
+        if (f_verbose) printf("EXIT %d\n", bx());
         exit(bx());
     case 4:             // write
         p = &ram[physicalAddress(cx(), SS, false)];
-        if (f_asmout) v = dx();
-        else v = write(bx(), p, dx());
+        v = write(bx(), p, dx());
         setAX(v);
         break;
     case 5:             // open
@@ -202,7 +202,7 @@ void handle_intcall(int intno)
         setAX(-2);
         break;
     case 54:            // ioctl
-        if (!f_asmout)
+        if (f_verbose)
             printf("IOCTL %d,%c%02d,%x\n", bx(), cx()>>8, cx()&0xff, dx());
         setAX(bx() < 3? 0: -1);
         break;

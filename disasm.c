@@ -93,7 +93,7 @@ static void outRM(struct dis *d, Word w)
     switch (d_modRM & 0xc0) {
         case 0x00:
             if ((d_modRM & 0xc7) == 6)
-                d->s += sprintf(d->s, "(%s)", getsymbol(d->ds, w));
+                d->s += sprintf(d->s, "(%s)", getsymbol(d, d->ds, w));
             else d->s += sprintf(d->s, "%s", basemodes[d_modRM & 7]);
             break;
         case 0x40:
@@ -245,11 +245,11 @@ static void outs(struct dis *d, const char *str, int flags)
     if ((flags & ACC) && sourceIsRM == 0)
         d->s += sprintf(d->s, "%s,", wordSize? wordregs[0]: byteregs[0]);
     if ((flags & MEMWORD) && sourceIsRM)
-        d->s += sprintf(d->s, "(%s),", getsymbol(d->ds, w2));
+        d->s += sprintf(d->s, "(%s),", getsymbol(d, d->ds, w2));
     if ((flags & ACC) && sourceIsRM)
         d->s += sprintf(d->s, "%s", wordSize? wordregs[0]: byteregs[0]);
     if ((flags & MEMWORD) && sourceIsRM == 0)
-        d->s += sprintf(d->s, "(%s)", getsymbol(d->ds, w2));
+        d->s += sprintf(d->s, "(%s)", getsymbol(d, d->ds, w2));
     if (flags & REGOP)
         d->s += sprintf(d->s, "%s", wordSize? wordregs[opcode & 7]: byteregs[opcode & 7]);
     if ((flags & (JMP|IMM|WORD)) == WORD)
@@ -263,11 +263,11 @@ static void outs(struct dis *d, const char *str, int flags)
         if (flags & WORD) {
             int waddr = (d->ip + w2) & 0xffff;
             if (opcode == 0xfe || opcode == 0xff) {
-                d->s += sprintf(d->s, "*%s", getsymbol(d->cs, w2));
-            } else d->s += sprintf(d->s, "%s // %04x", getsymbol(d->cs, waddr), waddr);
+                d->s += sprintf(d->s, "*%s", getsymbol(d, d->cs, w2));
+            } else d->s += sprintf(d->s, "%s // %04x", getsymbol(d, d->cs, waddr), waddr);
         }
         if (flags & DWORD) {
-            d->s += sprintf(d->s, "$%s,$%s", getsegsymbol(w), getsymbol(w, w2));
+            d->s += sprintf(d->s, "$%s,$%s", getsegsymbol(d, w), getsymbol(d, w, w2));
         }
     }
 }

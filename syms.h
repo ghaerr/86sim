@@ -1,4 +1,8 @@
+#ifndef SYMS_H_
+#define SYMS_H_
 /* ELKS symbol table support */
+
+#include "exe.h"
 
 /* symbol table format
  *  | byte type | word address | byte symbol length | symbol |
@@ -23,30 +27,13 @@
 
 typedef unsigned int addr_t;    /* ELKS a.out address size (short) or larger */
 
-unsigned char * noinstrument sym_read_exe_symbols(char *path);
-unsigned char * noinstrument sym_read_symbols(char *path);
-void noinstrument sym_free(void);
-char * noinstrument sym_text_symbol(addr_t addr, int exact);
-char * noinstrument sym_ftext_symbol(addr_t addr, int exact);
-char * noinstrument sym_data_symbol(addr_t addr, int exact);
-char * noinstrument sym_symbol(addr_t addr, int exact);
-addr_t  noinstrument sym_fn_start_address(addr_t addr);
+unsigned char * noinstrument sym_read_exe_symbols(struct exe *e, char *path);
+unsigned char * noinstrument sym_read_symbols(struct exe *e, char *path);
+void noinstrument sym_free(struct exe *e);
+char * noinstrument sym_text_symbol(struct exe *e, addr_t addr, int exact);
+char * noinstrument sym_ftext_symbol(struct exe *e, addr_t addr, int exact);
+char * noinstrument sym_data_symbol(struct exe *e, addr_t addr, int exact);
+char * noinstrument sym_symbol(struct exe *e, addr_t addr, int exact);
+addr_t  noinstrument sym_fn_start_address(struct exe *e, addr_t addr);
 
-/* a.out header */
-#include <stdint.h>
-
-struct minix_exec_hdr {
-    uint32_t  type;
-    uint8_t   hlen;       // 0x04
-    uint8_t   reserved1;
-    uint16_t  version;
-    uint32_t  tseg;       // 0x08
-    uint32_t  dseg;       // 0x0c
-    uint32_t  bseg;       // 0x10
-    uint32_t  entry;
-    uint16_t  chmem;
-    uint16_t  minstack;
-    uint32_t  syms;
-};
-
-extern struct minix_exec_hdr sym_hdr;
+#endif /* SYMS_H_ */

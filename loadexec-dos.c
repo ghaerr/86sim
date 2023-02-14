@@ -296,8 +296,9 @@ int getDescriptor()
     return oldCount;
 }
 
-void handle_intcall(int intno)
+void handle_intcall(void *m, int intno)
 {
+        //struct exe *e = m;
         int fileDescriptor;
         char *p;
         DWord data;

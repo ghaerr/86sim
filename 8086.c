@@ -44,12 +44,13 @@ static bool running;
 static bool prefix;
 static bool repeating;
 static int ios;
+static void *m;
 
 static inline Word rw(void)          { return registers[opcode & 7]; }
 static inline void setRW(Word value) { registers[opcode & 7] = value; }
 static inline void setRB(Byte value) { *byteRegisters[opcode & 7] = value; }
 
-int initMachine(void)
+int initMachine(void *p)
 {
     memset(ram, 0, sizeof(ram));
     memset(shadowRam, 0, sizeof(shadowRam));
@@ -65,6 +66,7 @@ int initMachine(void)
     for (int i = 0 ; i < 8; ++i)
         byteRegisters[i] = &byteData[byteNumbers[i] ^ bigEndian];
 
+    m = p;          /* saved passed struct exe * for handle_intcall() */
     return 0;
 }
 
@@ -771,14 +773,14 @@ void ExecuteInstruction(void)
                 o('m');
                 break;
             case 0xcc:  // INT 3
-                handle_intcall(3);
+                handle_intcall(m, 3);
                 break;
             case 0xcd:
-                handle_intcall(fetchByte());
+                handle_intcall(m, fetchByte());
                 o('$');
                 break;
             case 0xce:  // INTO
-                handle_intcall(4);
+                handle_intcall(m, 4);
                 break;
             case 0xcf:  // IRET
                 o('I');

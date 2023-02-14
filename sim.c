@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
     if (argc < 1)
         usage();
 
-    initMachine();
+    initMachine(&e);
     load_executable(&e, argv[0], argc, argv, environ);
     sym_read_exe_symbols(&e, argv[0]);
 

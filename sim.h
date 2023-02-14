@@ -20,7 +20,7 @@ extern Word loadSegment;
 extern DWord stackLow;
 
 /* emulator operation */
-int initMachine(void);
+int initMachine(void *p);
 void initExecute(void);
 void ExecuteInstruction(void);
 int isRepeating(void);
@@ -28,7 +28,7 @@ int isRepeating(void);
 /* emulator callouts */
 void divideOverflow(void);
 void runtimeError(const char *msg, ...);
-void handle_intcall(int intno);
+void handle_intcall(void *p, int intno);
 
 /* memory access functions */
 Byte readByte(Word offset, int seg);

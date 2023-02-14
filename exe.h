@@ -41,11 +41,18 @@ struct minix_reloc {
 
 struct exe {
     struct minix_exec_hdr aout;
-    struct elks_supl_hdr  eshdr;
-    unsigned char *       syms;
-    uint16_t              textseg;
-    uint16_t              ftextseg;
-    uint16_t              dataseg;
+    struct elks_supl_hdr eshdr;
+    /* disassembly */
+    unsigned char * syms;       /* symbol table */
+    uint16_t textseg;           /* text and data segments */
+    uint16_t ftextseg;
+    uint16_t dataseg;
+    /* break management */
+    uint16_t t_endseg;          /* end of data segment (data+bss+heap+stack) */
+    uint16_t t_begstack;        /* start SP */
+    uint16_t t_minstack;        /* min stack size */
+    uint16_t t_enddata;         /* start heap = end of data+bss */
+    uint16_t t_endbrk;          /* current break (end of heap) */
 };
 
 #define ELKSMAGIC   0x0301      /* magic number for ELKS executable progs */

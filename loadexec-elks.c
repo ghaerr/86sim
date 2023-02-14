@@ -10,9 +10,6 @@
 #include "sim.h"
 #include "exe.h"
 
-/* loader globals */
-Word loadSegment;
-DWord stackLow;
 extern int f_verbose;
 
 static int calc_environ(int argc, char **argv, char **envp)
@@ -139,6 +136,7 @@ static void load_bios_irqs(void)
 
 void load_executable(struct exe *e, const char *path, int argc, char **argv, char **envp)
 {
+    Word loadSegment;
     struct stat sbuf;
 
     int fd = open(path, O_RDONLY);

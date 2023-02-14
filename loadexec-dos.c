@@ -9,11 +9,9 @@
 #include "sim.h"
 #include "exe.h"
 
-/* loader globals */
-Word loadSegment;
-DWord stackLow;
 extern int f_verbose;
-
+static Word loadSegment;
+static DWord stackLow;
 static const char* filename;
 static int filesize;
 static char* pathBuffers[2];

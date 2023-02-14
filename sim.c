@@ -40,11 +40,6 @@ void runtimeError(const char *msg, ...)
     exit(1);
 }
 
-void divideOverflow()
-{
-    runtimeError("Divide overflow");
-}
-
 void usage(void)
 {
     printf("Usage: %s [-vaoc] <program name>\n", program_file);

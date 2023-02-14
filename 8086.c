@@ -20,6 +20,7 @@ typedef int bool;
 Word registers[12];
 Byte* byteRegisters[8];
 Byte ram[RAMSIZE];
+int f_verbose;
 
 static Byte shadowRam[RAMSIZE];
 static bool useMemory;
@@ -77,12 +78,19 @@ void initExecute(void)
     repeating = false;
 }
 
+static void divideOverflow(void)
+{
+    runtimeError("Divide overflow");
+}
+
 void setShadowFlags(Word offset, int seg, int len, int flags)
 {
-    DWord a = (((DWord)registers[8 + seg] << 4) + offset) & 0xfffff;
+    DWord a = ((DWord)registers[8 + seg] << 4) + offset;
     int i;
 
-    printf("setShadow %04x:%04x len %05x to %x\n", registers[8+seg], offset, len, flags);
+    if (f_verbose)
+        printf("setShadow %04x:%04x len %05x to %x\n",
+            registers[8+seg], offset, len, flags);
     for (i=0; i<len; i++) {
         if (a < RAMSIZE)
             shadowRam[a++] = flags;

@@ -15,10 +15,6 @@ extern Word registers[12];
 extern Byte* byteRegisters[8];
 extern Byte ram[RAMSIZE];
 
-/* loader globals */
-extern Word loadSegment;
-extern DWord stackLow;
-
 /* emulator operation */
 int initMachine(void *p);
 void initExecute(void);
@@ -26,7 +22,6 @@ void ExecuteInstruction(void);
 int isRepeating(void);
 
 /* emulator callouts */
-void divideOverflow(void);
 void runtimeError(const char *msg, ...);
 void handle_intcall(void *p, int intno);
 

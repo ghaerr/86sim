@@ -16,14 +16,16 @@ extern Byte* byteRegisters[8];
 extern Byte ram[RAMSIZE];
 
 /* emulator operation */
-int initMachine(void *p);
+struct exe;                     /* defined in exe.h */
+int initMachine(struct exe *e);
 void initExecute(void);
-void ExecuteInstruction(void);
+void executeInstruction(void);
 int isRepeating(void);
 
 /* emulator callouts */
 void runtimeError(const char *msg, ...);
-void handle_intcall(void *p, int intno);
+int checkStack(struct exe *e);
+void handleInterrupt(struct exe *e, int intno);
 
 /* memory access functions */
 Byte readByte(Word offset, int seg);
@@ -34,6 +36,10 @@ DWord physicalAddress(Word offset, int seg, int write);
 #define fRead   0x01
 #define fWrite  0x02
 void setShadowFlags(Word offset, int seg, int len, int flags);
+
+#define INT0_DIV_ERROR  0
+#define INT3_BREAKPOINT 3
+#define INT4_OVERFLOW   4
 
 /* register access functions */
 static inline Word ax() { return registers[0]; }

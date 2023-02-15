@@ -86,7 +86,8 @@ struct exe {
     uint32_t t_stackLow;        /* lowest SS:SP allowed */
 };
 
-#define ELKSMAGIC   0x0301      /* magic number for ELKS executable progs */
+#define ELKSMAGIC   0x0301      /* magic number for ELKS executables */
+#define DOSMAGIC    0x5a4d      /* magic number for DOS MZ executables */
 
 /* loader entry points */
 void load_executable(struct exe *e, const char *filename, int argc, char **argv, char **envp);

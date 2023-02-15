@@ -13,7 +13,6 @@
 #include <unistd.h>
 #include "sim.h"
 #include "disasm.h"
-#include "exe.h"        /* possibly remove or change void *m below */
 
 typedef int bool;
 
@@ -46,19 +45,22 @@ static bool prefix;
 static bool repeating;
 static int rep;
 static int ios;
-static void *m;
+static struct exe *ep;
 
 static inline Word rw(void)          { return registers[opcode & 7]; }
 static inline void setRW(Word value) { registers[opcode & 7] = value; }
 static inline void setRB(Byte value) { *byteRegisters[opcode & 7] = value; }
 
-int initMachine(void *p)
+int initMachine(struct exe *e)
 {
     memset(ram, 0, sizeof(ram));
     memset(shadowRam, 0, sizeof(shadowRam));
+    ep = e;          /* saved passed struct exe * for handleInterrupt() */
 
     segment = 0;
     segmentOverride = -1;
+    prefix = false;
+    repeating = false;
     running = false;
 
     setCX(0x00FF);      /* must be 0x00FF as for big endian test below */
@@ -68,20 +70,18 @@ int initMachine(void *p)
     for (int i = 0 ; i < 8; ++i)
         byteRegisters[i] = &byteData[byteNumbers[i] ^ bigEndian];
 
-    m = p;          /* saved passed struct exe * for handle_intcall() */
     return 0;
 }
 
 void initExecute(void)
 {
     running = true;
-    prefix = false;
-    repeating = false;
 }
 
 static void divideOverflow(void)
 {
-    runtimeError("Divide overflow");
+    handleInterrupt(ep, INT0_DIV_ERROR);
+    data = source = 1;
 }
 
 void setShadowFlags(Word offset, int seg, int len, int flags)
@@ -287,8 +287,7 @@ static void push(Word value)
 {
     o('{');
     setSP(sp() - 2);
-    if (((struct exe *)m)->t_stackLow
-       && ((DWord)ss() << 4) + sp() <= ((struct exe *)m)->t_stackLow)
+    if (checkStack(ep))
         runtimeError("Stack overflow SS:SP = %04x:%04x\n", ss(), sp());
     writeWord(value, sp(), SS);
 }
@@ -455,7 +454,7 @@ static Word incdec(bool decrement)
 }
 
 /* execute a single repetition of instruction */
-void ExecuteInstruction(void)
+void executeInstruction(void)
 {
     if (!repeating) {
         if (!prefix) {
@@ -781,14 +780,14 @@ void ExecuteInstruction(void)
                 o('m');
                 break;
             case 0xcc:  // INT 3
-                handle_intcall(m, 3);
+                handleInterrupt(ep, INT3_BREAKPOINT);
                 break;
             case 0xcd:
-                handle_intcall(m, fetchByte());
+                handleInterrupt(ep, fetchByte());
                 o('$');
                 break;
             case 0xce:  // INTO
-                handle_intcall(m, 4);
+                handleInterrupt(ep, INT4_OVERFLOW);
                 break;
             case 0xcf:  // IRET
                 o('I');

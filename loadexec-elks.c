@@ -219,6 +219,11 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
     set_entry_registers();
 }
 
+int checkStack(struct exe *e)
+{
+    return (e->t_stackLow && ((DWord)ss() << 4) + sp() <= e->t_stackLow);
+}
+
 static int SysExit(struct exe *e, int rc)
 {
     if (f_verbose) printf("EXIT %d\n", rc);
@@ -292,16 +297,28 @@ static int SysSbrk(struct exe *e, int incr, int offset_result)
 #define rptr(off)     ((char *)&ram[physicalAddress(off, SS, false)])
 #define wptr(off)     ((char *)&ram[physicalAddress(off, SS, true)])
 
-void handle_intcall(void *m, int intno)
+void handleInterrupt(struct exe *e, int intno)
 {
-    struct exe *e = m;
     unsigned int AX = ax();
     unsigned int BX = bx();
     unsigned int CX = cx();
     unsigned int DX = dx();
 
-    if (intno != 0x80)
+    switch (intno) {
+    case INT0_DIV_ERROR:
+        runtimeError("Divide by zero");
+        return;
+    case INT3_BREAKPOINT:
+        runtimeError("Breakpoint trap");
+        return;
+    case INT4_OVERFLOW:
+        runtimeError("Overflow trap");
+        return;
+    case 0x80:              /* sys call */
+        break;
+    default:
         runtimeError("Unknown INT 0x%02x", intno);
+    }
     /* syscall args: BX, CX, DX, DI, SI */
     switch (AX) {
     SYSCALL(1,  SysExit,  (e, BX));

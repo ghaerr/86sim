@@ -98,7 +98,7 @@ int main(int argc, char *argv[])
             disasm(&d, cs(), lastIP, nextbyte_mem, ds(), flags);
             printf("%s\n", ColorInst(&d, d.buf));
         }
-        ExecuteInstruction();
+        executeInstruction();
         if (!isRepeating())
             lastIP = getIP();
     }

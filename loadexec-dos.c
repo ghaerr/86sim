@@ -36,10 +36,11 @@ static void write_environ(int argc, char **argv, char **envp)
     setShadowFlags(0, ES, 0xc0, fRead);
     writeByte(0x00, 0, ES);            // No environment for now
     writeWord(0x0001, 1, ES);
-    for (i = 0; filename[i] != 0; ++i)
+    for (i = 0; filename[i] != 0; ++i) {
         writeByte(filename[i], i + 3, ES);
-    if (i + 4 >= 0xc0)
-        loadError("Program name too long\n");
+        if (i + 4 >= 0xc0)
+            loadError("Program name too long\n");
+    }
     writeWord(0x0000, i + 3, ES);
 
     /* prepare PSP */
@@ -157,7 +158,7 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
 
     write_environ(argc, argv, envp);
     struct image_dos_header *hdr = (struct image_dos_header *)&ram[loadOffset];
-    if (filesize >= 2 && hdr->e_magic == 0x5a4d) {  // .exe file?
+    if (filesize >= 2 && hdr->e_magic == DOSMAGIC) {  // .exe file?
         if (filesize < 0x21)
             loadError("%s is too short to be an .exe file\n", path);
         Word bytesInLastBlock = hdr->e_cblp;
@@ -176,7 +177,6 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
             r++;
         }
         setES(imageSegment);
-        printf("this\n");
         setShadowFlags(0, ES, exeLength - headerLength, fRead|fWrite);
         setES(loadSegment - 0x10);
         setDS(loadSegment - 0x10);
@@ -285,9 +285,13 @@ static int getDescriptor()
     return oldCount;
 }
 
-void handle_intcall(void *m, int intno)
+int checkStack(struct exe *e)
 {
-        //struct exe *e = m;
+    return (e->t_stackLow && ((DWord)ss() << 4) + sp() <= e->t_stackLow);
+}
+
+void handleInterrupt(struct exe *e, int intno)
+{
         int fileDescriptor;
         char *p;
         DWord data;

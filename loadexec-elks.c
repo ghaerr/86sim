@@ -205,6 +205,7 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
     if (e->t_endbrk & 1)            /* even heap start */
         e->t_endbrk++;
     setSP(e->t_begstack);
+    e->t_stackLow = (ss() << 4) + e->t_begstack - e->t_minstack;
 
     write_environ(argc, argv, envp);
     if (f_verbose)

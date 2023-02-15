@@ -1,6 +1,7 @@
 /* loadexec-dos.c - MSDOS-specific functions for 8086 simulator */
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
@@ -11,65 +12,63 @@
 
 extern int f_verbose;
 static Word loadSegment;
-static DWord stackLow;
-static const char* filename;
-static int filesize;
 static char* pathBuffers[2];
 static int* fileDescriptors;
 static int fileDescriptorCount = 6;
 
+static void loadError(const char *msg, ...)
+{
+    va_list args;
+    va_start(args, msg);
+    vfprintf(stderr, msg, args);
+    va_end(args);
+    exit(1);
+}
+
 static void write_environ(int argc, char **argv, char **envp)
 {
-    int envSegment = loadSegment - 0x1c;
+    int envSegment = loadSegment - 0x10 - 0x0c;
+    char *filename = argv[0];
     int i;
 
+    /* prepare environment segment */
     setES(envSegment);
-    setShadowFlags(0, ES, 0x100, fRead);
-    writeByte(0, 0, ES);  // No environment for now
-    writeWord(1, 1, ES);
+    setShadowFlags(0, ES, 0xc0, fRead);
+    writeByte(0x00, 0, ES);            // No environment for now
+    writeWord(0x0001, 1, ES);
     for (i = 0; filename[i] != 0; ++i)
         writeByte(filename[i], i + 3, ES);
-    if (i + 4 >= 0xc0) {
-        fprintf(stderr, "Program name too long.\n");    // FIXME
-        exit(1);
-    }
-    writeWord(0, i + 3, ES);
+    if (i + 4 >= 0xc0)
+        loadError("Program name too long\n");
+    writeWord(0x0000, i + 3, ES);
+
+    /* prepare PSP */
     setES(loadSegment - 0x10);
     setShadowFlags(0, ES, 0x0100, fRead);
+    writeWord(0x9fff, 2, ES);
     writeWord(envSegment, 0x2c, ES);
     i = 0x81;
     for (int a = 2; a < argc; ++a) {
-        if (a > 2) {
-            writeByte(' ', i, ES);
-            ++i;
-        }
+        if (a > 2)
+            writeByte(' ', i++, ES);
+
         char* arg = argv[a];
         int quote = strchr(arg, ' ') != 0;
-        if (quote) {
-            writeByte('\"', i, ES);
-            ++i;
-        }
+        if (quote)
+            writeByte('\"', i++, ES);
+
         for (; *arg != 0; ++arg) {
-            int c = *arg;
-            if (c == '\"') {
-                writeByte('\\', i, ES);
-                ++i;
-            }
-            writeByte(c, i, ES);
-            ++i;
+            if (*arg == '\"')
+                writeByte('\\', i++, ES);
+            writeByte(*arg, i++, ES);
         }
-        if (quote) {
-            writeByte('\"', i, ES);
-            ++i;
-        }
+        if (quote)
+            writeByte('\"', i++, ES);
+        if (i > 0xff)
+            loadError("Arguments too long\n");
     }
-    if (i > 0xff) {
-        fprintf(stderr, "Arguments too long.\n");   // FIXME
-        exit(1);
-    }
-    writeWord(0x9fff, 2, ES);
-    writeByte(i - 0x81, 0x80, ES);
     writeByte('\r', i, ES);
+    writeByte(i - 0x81, 0x80, ES);
 }
 
 static void* alloc(size_t bytes)
@@ -95,12 +94,6 @@ static void init()
     fileDescriptors[4] = STDOUT_FILENO;
     fileDescriptors[5] = -1;
 
-}
-
-static void error(const char* operation)
-{
-    fprintf(stderr, "Error %s file %s: %s\n", operation, filename, strerror(errno));
-    exit(1);
 }
 
 static void set_entry_registers(void)
@@ -143,84 +136,78 @@ static void load_bios_irqs(void)
 
 void load_executable(struct exe *e, const char *path, int argc, char **argv, char **envp)
 {
+    struct stat sbuf;
+
     init();
+    int fd = open(path, O_RDONLY);
+    if (fd < 0)
+        loadError("Can't open %s\n", path);
+    if (fstat(fd, &sbuf) < 0)
+        loadError("Can't stat %s\n", path);
+    size_t filesize = sbuf.st_size;
 
-    filename = path;
-    FILE* fp = fopen(filename, "rb");
-    if (fp == 0)
-        error("opening");
-    if (fseek(fp, 0, SEEK_END) != 0)
-        error("seeking");
-    filesize = ftell(fp);
-    if (filesize == -1)
-        error("telling");
-    if (fseek(fp, 0, SEEK_SET) != 0)
-        error("seeking");
-
-    loadSegment = 0x0212;
+    loadSegment = 0x1000;
     int loadOffset = loadSegment << 4;
-    if (filesize > 0x100000 - loadOffset)
-        filesize = 0x100000 - loadOffset;
-    if (fread(&ram[loadOffset], filesize, 1, fp) != 1)
-        error("reading");
-    fclose(fp);
+    if (filesize > RAMSIZE - loadOffset)
+        loadError("Not enough memory to load %s, needs %d bytes have %d\n",
+            path, filesize, RAMSIZE);
+    if (read(fd, &ram[loadOffset], filesize) != filesize)
+        loadError("Error reading executable: %s\n", path);
+    close(fd);
 
-    setIP(0x0100);
-    setES(loadSegment);
-    setShadowFlags(0, ES, filesize, fRead|fWrite);
     write_environ(argc, argv, envp);
-    setES(loadSegment - 0x10);
-    if (filesize >= 2 && readWordSeg(0x100, ES) == 0x5a4d) {  // .exe file?
-        if (filesize < 0x21) {
-            fprintf(stderr, "%s is too short to be an .exe file\n", filename);
-            exit(1);
-        }
-        Word bytesInLastBlock = readWordSeg(0x102, ES);
-        int exeLength = ((readWordSeg(0x104, ES) - (bytesInLastBlock == 0 ? 0 : 1)) << 9)
+    struct image_dos_header *hdr = (struct image_dos_header *)&ram[loadOffset];
+    if (filesize >= 2 && hdr->e_magic == 0x5a4d) {  // .exe file?
+        if (filesize < 0x21)
+            loadError("%s is too short to be an .exe file\n", path);
+        Word bytesInLastBlock = hdr->e_cblp;
+        int exeLength = ((hdr->e_cp - (bytesInLastBlock == 0 ? 0 : 1)) << 9)
             + bytesInLastBlock;
-        int headerParagraphs = readWordSeg(0x108, ES);
-        int headerLength = headerParagraphs << 4;
-        if (exeLength > filesize || headerLength > filesize ||
-            headerLength > exeLength) {
-            fprintf(stderr, "%s is corrupt\n", filename);   // FIXME
-            exit(1);
-        }
-        int relocationCount = readWordSeg(0x106, ES);
+        Word headerParagraphs = hdr->e_cparhdr;
+        Word headerLength = headerParagraphs << 4;
+        if (exeLength > filesize || headerLength > filesize || headerLength > exeLength)
+            loadError("%s is corrupt\n", path);
         Word imageSegment = loadSegment + headerParagraphs;
-        int relocationData = readWordSeg(0x118, ES);
-        for (int i = 0; i < relocationCount; ++i) {
-            int offset = readWordSeg(relocationData + 0x100, ES);
-            setCS(readWordSeg(relocationData + 0x102, ES) + imageSegment);
+        struct dos_reloc *r = (struct dos_reloc *)&ram[loadOffset+hdr->e_lfarlc];
+        for (int i = 0; i < hdr->e_crlc; ++i) {
+            Word offset = r->r_offset;
+            setCS(imageSegment + r->r_seg);
             writeWord(readWordSeg(offset, CS) + imageSegment, offset, CS);
-            relocationData += 4;
+            r++;
         }
-        //loadSegment = imageSegment;  // Prevent further access to header
-        Word ss = readWordSeg(0x10e, ES) + imageSegment;
-        setSS(ss);
-        setSP(readWordSeg(0x110, ES));
-        stackLow = (((exeLength - headerLength + 15) >> 4) + imageSegment) << 4;
-        if (stackLow < ((DWord)ss << 4) + 0x10)
-            stackLow = ((DWord)ss << 4) + 0x10;
+        setES(imageSegment);
+        printf("this\n");
+        setShadowFlags(0, ES, exeLength - headerLength, fRead|fWrite);
+        setES(loadSegment - 0x10);
         setDS(loadSegment - 0x10);
-        setIP(readWordSeg(0x114, ES));
-        setCS(readWordSeg(0x116, ES) + imageSegment);
-    }
-    else {
-        if (filesize > 0xff00) {
-            fprintf(stderr, "%s is too long to be a .com file\n", filename);
-            exit(1);
-        }
-        setCS(loadSegment);
+        setIP(hdr->e_ip);
+        setCS(hdr->e_cs + imageSegment);
+        Word ss = hdr->e_ss + imageSegment;
+        setSS(ss);
+        setSP(hdr->e_sp);
+        e->t_stackLow = (((exeLength - headerLength + 15) >> 4) + imageSegment) << 4;
+        if (e->t_stackLow < ((DWord)ss << 4) + 0x10)
+            e->t_stackLow = ((DWord)ss << 4) + 0x10;
+        if (e->t_stackLow > ((DWord)ss << 4) + sp()) /* required for test.exe stub */
+            e->t_stackLow = ((DWord)ss << 4) + 0;
+    } else {
+        if (filesize > 0xff00)
+            loadError("%s is too long to be a .com file\n", path);
+        setES(loadSegment);
+        setShadowFlags(0, ES, filesize, fRead|fWrite);
+        setES(loadSegment - 0x10);
         setDS(loadSegment);
+        setCS(loadSegment);
+        setIP(0x0100);
         setSS(loadSegment);
         setSP(0xFFFE);
-        stackLow = ((DWord)loadSegment << 4) + filesize;
+        e->t_stackLow = ((DWord)loadSegment << 4) + filesize;
     }
     // Some testcases copy uninitialized stack data, so mark as initialized
     // any locations that could possibly be stack.
     //if (a < ((DWord)loadSegment << 4) - 0x100 && running)
          //bad = true;
-    setShadowFlags(0, SS, 0x10000, fRead|fWrite);    // FIXME only usable stack
+    setShadowFlags(0, SS, sp(), fRead|fWrite);
 #if 0
     if (sp()) {
         Word d = 0;
@@ -244,7 +231,7 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
     set_entry_registers();
 }
 
-char* initString(Word offset, int seg, int write, int buffer, int bytes)
+static char* initString(Word offset, int seg, int write, int buffer, int bytes)
 {
     for (int i = 0; i < bytes; ++i) {
         char p;
@@ -263,22 +250,26 @@ char* initString(Word offset, int seg, int write, int buffer, int bytes)
         pathBuffers[buffer][0xffff] = 0;
     return pathBuffers[buffer];
 }
-char* dsdxparms(int write, int bytes)
+
+static char* dsdxparms(int write, int bytes)
 {
     return initString(dx(), DS, write, 0, bytes);
 }
-char *dsdx()
+
+static char *dsdx()
 {
     return dsdxparms(false, 0x10000);
 }
-int dosError(int e)
+
+static int dosError(int e)
 {
     if (e == ENOENT)
         return 2;
     runtimeError("%s\n", strerror(e));
     return 0;
 }
-int getDescriptor()
+
+static int getDescriptor()
 {
     for (int i = 0; i < fileDescriptorCount; ++i)
         if (fileDescriptors[i] == -1)
@@ -499,9 +490,8 @@ void handle_intcall(void *m, int intno)
                         break;
                     case 0x214c:
                         if (f_verbose) {
-                            printf("\n*** Bytes: %i\n", filesize);
                             //printf("*** Cycles: %i\n", ios);
-                            printf("*** EXIT code %i\n", al());
+                            printf("EXIT %d\n", al());
                         }
                         exit(0);
                         break;

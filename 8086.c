@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include "sim.h"
 #include "disasm.h"
+#include "exe.h"
 
 typedef int bool;
 
@@ -30,20 +31,20 @@ static Byte opcode;
 static Word flags;
 static Byte modRM;
 static int segment;
+static int segmentOverride;
 static bool wordSize;
 static bool sourceIsRM;
 static DWord data;
 static DWord destination;
 static DWord source;
-static int rep;
-static Word savedIP;
-static Word savedCS;
-static int segmentOverride;
 static Word residue;
 static int aluOperation;
+static Word savedIP;
+static Word savedCS;
 static bool running;
 static bool prefix;
 static bool repeating;
+static int rep;
 static int ios;
 static void *m;
 
@@ -286,10 +287,8 @@ static void push(Word value)
 {
     o('{');
     setSP(sp() - 2);
-#if 0 // MSDOS FIXME - stack overflow with some DOS programs (test.exe)
-    if (((DWord)ss() << 4) + sp() <= stackLow)
-        runtimeError("Stack overflow");
-#endif
+    if (((DWord)ss() << 4) + sp() <= ((struct exe *)m)->t_stackLow)
+        runtimeError("Stack overflow SS:SP = %04x:%04x\n", ss(), sp());
     writeWord(value, sp(), SS);
 }
 static Word pop() {

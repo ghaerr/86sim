@@ -188,8 +188,8 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
         e->t_stackLow = (((exeLength - headerLength + 15) >> 4) + imageSegment) << 4;
         if (e->t_stackLow < ((DWord)ss << 4) + 0x10)
             e->t_stackLow = ((DWord)ss << 4) + 0x10;
-        if (e->t_stackLow > ((DWord)ss << 4) + sp()) /* required for test.exe stub */
-            e->t_stackLow = ((DWord)ss << 4) + 0;
+        if (e->t_stackLow > ((DWord)ss << 4) + sp()) /* disable for test.exe stub */
+            e->t_stackLow = 0;
     } else {
         if (filesize > 0xff00)
             loadError("%s is too long to be a .com file\n", path);

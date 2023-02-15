@@ -13,7 +13,7 @@
 #include <unistd.h>
 #include "sim.h"
 #include "disasm.h"
-#include "exe.h"
+#include "exe.h"        /* possibly remove or change void *m below */
 
 typedef int bool;
 
@@ -287,7 +287,8 @@ static void push(Word value)
 {
     o('{');
     setSP(sp() - 2);
-    if (((DWord)ss() << 4) + sp() <= ((struct exe *)m)->t_stackLow)
+    if (((struct exe *)m)->t_stackLow
+       && ((DWord)ss() << 4) + sp() <= ((struct exe *)m)->t_stackLow)
         runtimeError("Stack overflow SS:SP = %04x:%04x\n", ss(), sp());
     writeWord(value, sp(), SS);
 }

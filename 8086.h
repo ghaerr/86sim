@@ -1,4 +1,4 @@
-/* sim.h */
+/* 8086 emulator header file */
 #include <stdint.h>
 
 typedef uint8_t  Byte;

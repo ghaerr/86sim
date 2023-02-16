@@ -13,11 +13,11 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include <getopt.h>
-#include "sim.h"
+#include "8086.h"
 #include "exe.h"
 #include "syms.h"
 #include "disasm.h"
-#include "colorinst.h"
+#include "discolor.h"
 
 int f_verbose;
 static int f_disasm;            /* do disassembly */
@@ -96,7 +96,7 @@ int main(int argc, char *argv[])
     for (;;) {
         if (f_disasm && (f_showreps || !isRepeating())) {
             disasm(&d, cs(), lastIP, nextbyte_mem, ds(), flags);
-            printf("%s\n", ColorInst(&d, d.buf));
+            printf("%s\n", colorInst(&d, d.buf));
         }
         executeInstruction();
         if (!isRepeating())

@@ -2,7 +2,10 @@
 #define COLORINST_H_
 #include "disasm.h"
 
-struct High {
+#if BLINK
+#include "blink/high.h"
+#else
+struct highlight {
   int enabled;
   int active;
   unsigned char keyword;
@@ -15,10 +18,11 @@ struct High {
   unsigned char symbol;
 };
 
-extern struct High g_high;
+extern struct highlight g_high;
+#endif
 
-char *HighStart(char *, int);
-char *HighEnd(char *);
-char *ColorInst(struct dis *d, char *str);
+char *highStart(char *, int);
+char *highEnd(char *);
+char *colorInst(struct dis *d, char *str);
 
 #endif /* COLORINST_H_ */

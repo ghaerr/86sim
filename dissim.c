@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "disasm.h"
-#include "colorinst.h"
+#include "discolor.h"
 #include "syms.h"
 #include "exe.h"
 
@@ -15,23 +15,23 @@ char * getsymbol(struct dis *d, int seg, int offset)
 
     if (e && e->syms) {
         if (seg != 0 && seg == e->dataseg) {
-            p = HighStart(buf, g_high.symbol);
+            p = highStart(buf, g_high.symbol);
             p = stpcpy(p, sym_data_symbol(e, offset, 1));
-            p = HighEnd(p);
+            p = highEnd(p);
             *p = '\0';
             return buf;
         }
         if (seg != 0 && seg == e->ftextseg) {
-            p = HighStart(buf, g_high.symbol);
+            p = highStart(buf, g_high.symbol);
             p = stpcpy(p, sym_ftext_symbol(e, offset, 1));
-            p = HighEnd(p);
+            p = highEnd(p);
             *p = '\0';
             return buf;
         }
         //if (seg == e->textseg) {
-            p = HighStart(buf, g_high.symbol);
+            p = highStart(buf, g_high.symbol);
             p = stpcpy(p, sym_text_symbol(e, offset, 1));
-            p = HighEnd(p);
+            p = highEnd(p);
             *p = '\0';
             return buf;
         //}

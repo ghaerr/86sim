@@ -18,6 +18,7 @@
 #include "exe.h"
 #include "syms.h"
 #include "disasm.h"
+#include "discolor.h"
 
 #define KSYMTAB     "/lib/system.sym"
 #define MAGIC       0x0301  /* magic number for executable progs */
@@ -47,7 +48,7 @@ void disasm_mem(int cs, int ip, int opcount)
     e.textseg = cs;
     for (n=0; n<opcount; n++) {
         nextip = disasm(&d, e.textseg, ip, nextbyte_mem, e.dataseg, flags);
-        printf("%s\n", d.buf);
+        printf("%s\n", colorInst(&d, d.buf));
         if (opcount == 32767 && peekb(cs, ip) == 0xc3)  /* RET */
             break;
         ip = nextip;
@@ -89,7 +90,7 @@ int disasm_file(char *filename)
     if (f_octal) flags |= fDisOctal;
     while (ip < filesize) {
         nextip = disasm(&d, e.textseg, ip, nextbyte_file, e.dataseg, flags);
-        printf("%s\n", d.buf);
+        printf("%s\n", colorInst(&d, d.buf));
         ip = nextip;
     }
     fclose(infp);

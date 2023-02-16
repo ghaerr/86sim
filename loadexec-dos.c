@@ -7,7 +7,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include "sim.h"
+#include "8086.h"
 #include "exe.h"
 
 extern int f_verbose;

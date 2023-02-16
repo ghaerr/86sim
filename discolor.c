@@ -19,9 +19,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "colorinst.h"
+#include "discolor.h"
 
-struct High g_high = {
+#if !BLINK
+struct highlight g_high = {
     .enabled = 1,
     .active = 0,
     //.keyword = 155,
@@ -35,8 +36,9 @@ struct High g_high = {
     .grey = 241,            // op bytes
     .symbol = 1,            // symbol
 };
+#endif
 
-char *HighStart(char *p, int h) {
+char *highStart(char *p, int h) {
   if (g_high.enabled) {
     if (h == 1) {           /* special case for bold */
       p = stpcpy(p, "\033[1m");
@@ -51,7 +53,7 @@ char *HighStart(char *p, int h) {
   return p;
 }
 
-char *HighEnd(char *p) {
+char *highEnd(char *p) {
   if (g_high.enabled) {
     if (g_high.active == 2) {
       p = stpcpy(p, "\033[m");
@@ -63,12 +65,14 @@ char *HighEnd(char *p) {
   return p;
 }
 
-char *ColorInst(struct dis *d, char *str)
+char *colorInst(struct dis *d, char *str)
 {
-    static char buf[128];
+    static char buf[256];
     int i, startbytes = 0, startinst = 0;
     char *p = buf;
 
+    if (d->flags & fDisAddr)
+        startbytes += 6;
     if (d->flags & fDisCS)
         startbytes += 5;
     if (d->flags & fDisIP)
@@ -80,34 +84,34 @@ char *ColorInst(struct dis *d, char *str)
     for (i=0; i<startbytes; i++)
         *p++ = *str++;
     if (d->flags & fDisBytes) {
-        p = HighStart(p, g_high.grey);
+        p = highStart(p, g_high.grey);
         do {
             *p++ = *str++;
         }  while (i++ < startinst);
-        p = HighEnd(p);
+        p = highEnd(p);
     }
-    p = HighStart(p, g_high.keyword);
+    p = highStart(p, g_high.keyword);
     do {
         *p++ = *str++;
     } while (*str && *str != ' ');
-    p = HighEnd(p);
+    p = highEnd(p);
     
     while (*str) {
         switch (*str) {
         case '%':
-            p = HighStart(p, g_high.reg);
+            p = highStart(p, g_high.reg);
             *p++ = *str++;
             *p++ = *str++;
             *p++ = *str++;
-            p = HighEnd(p);
+            p = highEnd(p);
             break;
         case '$':
             *p++ = *str++;
-            p = HighStart(p, g_high.literal);
+            p = highStart(p, g_high.literal);
             do {
                 *p++ = *str++;
             } while (*str && *str != ',');
-            p = HighEnd(p);
+            p = highEnd(p);
             break;
         default:
             *p++ = *str++;

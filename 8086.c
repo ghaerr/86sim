@@ -4,14 +4,14 @@
  * Orginally from Andrew Jenner's reenigne project
  * DOS enhancements by TK Chia
  * ELKS executable support by Greg Haerr
- * Disassembler added by Greg Haerr
+ * Disassembler added and blink rewrite by Greg Haerr
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
-#include "sim.h"
+#include "8086.h"
 #include "disasm.h"
 
 typedef int bool;

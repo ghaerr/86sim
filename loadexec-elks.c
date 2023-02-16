@@ -219,9 +219,13 @@ void load_executable(struct exe *e, const char *path, int argc, char **argv, cha
     set_entry_registers();
 }
 
+/* return true on stack overflow */
 int checkStack(struct exe *e)
 {
-    return (e->t_stackLow && ((DWord)ss() << 4) + sp() <= e->t_stackLow);
+    return (e->t_stackLow && ((DWord)ss() << 4) + sp() < e->t_stackLow);
+    //return (e->t_minstack && sp() < e->t_begstack - e->t_minstack);
+    /* allow more than min stack down to break */
+    //return (e->t_endbrk && sp() < e->t_endbrk);
 }
 
 static int SysExit(struct exe *e, int rc)

@@ -4,7 +4,9 @@
 typedef uint8_t  Byte;
 typedef uint16_t Word;
 typedef uint32_t DWord;
+#ifndef false
 enum { false = 0, true };
+#endif
 
 /* segment registers after 8 general registers */
 enum { ES = 0, CS, SS, DS };

@@ -2,7 +2,7 @@
 #define COLORINST_H_
 #include "disasm.h"
 
-#if BLINK
+#if BLINK16
 #include "blink/high.h"
 #else
 struct highlight {

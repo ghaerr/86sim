@@ -10,6 +10,10 @@
 #include "8086.h"
 #include "exe.h"
 
+#if BLINK16
+#include "machine.h"
+#endif
+
 extern int f_verbose;
 
 static int calc_environ(int argc, char **argv, char **envp)
@@ -237,7 +241,14 @@ static int SysExit(struct exe *e, int rc)
 
 static int SysWrite(struct exe *e, int fd, char *buf, size_t n)
 {
+#if BLINK16
+    extern ssize_t ptyWrite(int fd, char *buf, int len);
+    extern struct Machine m;        // FIXME rewrite
+    SetWriteAddr(&m, buf-(char *)ram, n);
+    return ptyWrite(fd, buf, n);
+#else
     return write(fd, buf, n);
+#endif
 }
 
 static int SysRead(struct exe *e, int fd, char *buf, size_t n)

@@ -27,10 +27,10 @@ testdos: sim-dos
 	@#./sim-dos hexdump.exe
 
 sim-dos: sim.c 8086.c disasm.c dissim.c discolor.c syms.c loadexec-dos.c
-	$(CC) $(CFLAGS) -DMSDOS=1 -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^
 
 sim-elks: sim.c 8086.c disasm.c dissim.c discolor.c syms.c loadexec-elks.c syms.c discolor.c
-	$(CC) $(CFLAGS) -DELKS=1 -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^
 
 dis8086: dis8086.c disasm.c dissim.c discolor.c syms.c
 	$(CC) $(CFLAGS) -D__far= -Wno-format -o $@ $^

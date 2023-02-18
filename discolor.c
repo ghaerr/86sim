@@ -21,11 +21,26 @@
 
 #include "discolor.h"
 
-#if !BLINK16
+#if BLINK16
 struct highlight g_high = {
     .enabled = 1,
     .active = 0,
     //.keyword = 155,
+    .keyword = 40,
+    .reg = 215,
+    .literal = 182,
+    //.label = 221,
+    .label = 1,
+    .comment = 112,
+    .quote = 215,
+    .grey = 241,
+    .symbol = 1
+};
+
+#else
+struct highlight g_high = {
+    .enabled = 1,
+    .active = 0,
     //.keyword = 40,          // instruction
     //.reg = 215,             // register
     //.literal = 182,         // literal

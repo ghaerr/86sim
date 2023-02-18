@@ -2,9 +2,6 @@
 #define COLORINST_H_
 #include "disasm.h"
 
-#if BLINK16
-#include "blink/high.h"
-#else
 struct highlight {
   int enabled;
   int active;
@@ -19,7 +16,6 @@ struct highlight {
 };
 
 extern struct highlight g_high;
-#endif
 
 char *highStart(char *, int);
 char *highEnd(char *);

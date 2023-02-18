@@ -15,7 +15,7 @@
 #include "exe.h"
 
 #if BLINK16
-#include "machine.h"
+#include "blink/machine.h"
 #endif
 
 extern int f_verbose;

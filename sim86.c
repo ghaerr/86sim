@@ -1,10 +1,10 @@
 /*
- * 8086 emulator
+ * sim86 - 8086 emulator for ELKS and DOS
  *
- * Orginally from Andrew Jenner's reenigne project
+ * Emulator orginally from Andrew Jenner's reenigne project
  * DOS enhancements by TK Chia
  * ELKS executable support by Greg Haerr
- * Disassembler added by Greg Haerr
+ * Heavily rewritten and disassembler added by Greg Haerr
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,7 +78,10 @@ int main(int argc, char *argv[])
         usage();
 
     initMachine(&e);
-    load_executable(&e, argv[0], argc, argv, environ);
+    char *p = strrchr(argv[0], '.');
+    if (!strncmp(p, ".exe", 5) || !strncmp(p, ".com", 5))
+        loadExecutableDOS(&e, argv[0], argc, argv, environ);
+    else loadExecutableElks(&e, argv[0], argc, argv, environ);
     sym_read_exe_symbols(&e, argv[0]);
 
 #ifdef __APPLE__    /* macOS stdio drops characters! */

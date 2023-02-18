@@ -26,8 +26,10 @@ int isRepeating(void);
 
 /* emulator callouts */
 void runtimeError(const char *msg, ...);
-int checkStack(struct exe *e);
-void handleInterrupt(struct exe *e, int intno);
+int checkStackElks(struct exe *e);
+int checkStackDOS(struct exe *e);
+void handleInterruptElks(struct exe *e, int intno);
+void handleInterruptDOS(struct exe *e, int intno);
 
 /* memory access functions */
 Byte readByte(Word offset, int seg);

@@ -70,6 +70,8 @@ struct exe {
     struct minix_exec_hdr aout;
     struct elks_supl_hdr eshdr;
     struct image_dos_header dos;
+    int (*checkStack)(struct exe *e);
+    void (*handleInterrupt)(struct exe *e, int intno);
     /* disassembly */
     unsigned char * syms;       /* symbol table */
     uint16_t textseg;           /* text and data segments */
@@ -90,6 +92,7 @@ struct exe {
 #define DOSMAGIC    0x5a4d      /* magic number for DOS MZ executables */
 
 /* loader entry points */
-void load_executable(struct exe *e, const char *filename, int argc, char **argv, char **envp);
+void loadExecutableElks(struct exe *e, const char *filename, int argc, char **argv, char **envp);
+void loadExecutableDOS(struct exe *e, const char *filename, int argc, char **argv, char **envp);
 
 #endif /* EXE_H_ */

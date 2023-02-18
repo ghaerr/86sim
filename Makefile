@@ -1,38 +1,35 @@
-#
+# sim86 8086 emulator Makefile
 #
 ELKS=../elks-gh
 CFLAGS=-Wall -O3
 
-all: sim-dos sim-elks dis8086 nm86 test testdos
+all: sim86 dis86 nm86 test testdos
 
 clean:
-	-rm -f sim-dos sim-elks dis8086 opcodes
+	-rm -f sim86 dis86 opcodes
 
-test2: sim-elks
-	./sim-elks -a echo1
+test2: sim86
+	sim86 -a echo1
 
-test: sim-elks
-	./sim-elks -v $(ELKS)/target/bin/banner ELKS Emulator
-	@#./sim-elks $(ELKS)/target/bin/hd foo.s
-	@#./sim-elks $(ELKS)/target/bin/cat foo.s
-	@#./sim-elks $(ELKS)/target/bin/echo This is a test
-	@#./sim-elks $(ELKS)/target/bin/printenv
-	@#./sim-elks $(ELKS)/target/bin/env
-	@#./sim-elks $(ELKS)/target/bin/hd 0:0#256
-	@#./sim-elks $(ELKS)/target/bin/login
-	@#./sim-elks $(ELKS)/target/bin/chmem $(ELKS)/target/bin/login
+test: sim86
+	./sim86 -v $(ELKS)/target/bin/banner ELKS Emulator
+	@#./sim86 $(ELKS)/target/bin/hd sim86
+	@#./sim86 $(ELKS)/target/bin/cat sim86.c
+	@#./sim86 $(ELKS)/target/bin/echo This is a test
+	@#./sim86 $(ELKS)/target/bin/printenv
+	@#./sim86 $(ELKS)/target/bin/env
+	@#./sim86 $(ELKS)/target/bin/hd 0:0#256
+	@#./sim86 $(ELKS)/target/bin/login
+	@#./sim86 $(ELKS)/target/bin/chmem $(ELKS)/target/bin/login
 
-testdos: sim-dos
-	./sim-dos -va test.exe
+testdos: sim86
+	./sim86 -va test.exe
 	@#./sim-dos hexdump.exe
 
-sim-dos: sim.c 8086.c disasm.c dissim.c discolor.c syms.c loadexec-dos.c
+sim86: sim86.c 8086.c disasm.c dissim.c discolor.c syms.c loader-elks.c syscall-elks.c loader-dos.c syscall-dos.c
 	$(CC) $(CFLAGS) -o $@ $^
 
-sim-elks: sim.c 8086.c disasm.c dissim.c discolor.c syms.c loadexec-elks.c syms.c discolor.c
-	$(CC) $(CFLAGS) -o $@ $^
-
-dis8086: dis8086.c disasm.c dissim.c discolor.c syms.c
+dis86: dis86.c disasm.c dissim.c discolor.c syms.c
 	$(CC) $(CFLAGS) -D__far= -Wno-format -o $@ $^
 
 nm86: nm86.c syms.c

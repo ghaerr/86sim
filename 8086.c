@@ -1,10 +1,10 @@
 /*
  * 8086 emulator
  *
- * Orginally from Andrew Jenner's reenigne project
+ * Emulator orginally from Andrew Jenner's reenigne project
  * DOS enhancements by TK Chia
  * ELKS executable support by Greg Haerr
- * Disassembler added and blink rewrite by Greg Haerr
+ * Heavily rewritten and disassembler added by Greg Haerr
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include "8086.h"
 #include "disasm.h"
+#include "exe.h"        /* required for handleInterrupt/checkStack */
 
 typedef int bool;
 
@@ -80,7 +81,7 @@ void initExecute(void)
 
 static void divideOverflow(void)
 {
-    handleInterrupt(ep, INT0_DIV_ERROR);
+    ep->handleInterrupt(ep, INT0_DIV_ERROR);
     data = source = 1;
 }
 
@@ -287,7 +288,7 @@ static void push(Word value)
 {
     o('{');
     setSP(sp() - 2);
-    if (checkStack(ep))
+    if (ep->checkStack(ep))
         runtimeError("Stack overflow SS:SP = %04x:%04x\n", ss(), sp());
     writeWord(value, sp(), SS);
 }
@@ -780,14 +781,14 @@ void executeInstruction(void)
                 o('m');
                 break;
             case 0xcc:  // INT 3
-                handleInterrupt(ep, INT3_BREAKPOINT);
+                ep->handleInterrupt(ep, INT3_BREAKPOINT);
                 break;
             case 0xcd:
-                handleInterrupt(ep, fetchByte());
+                ep->handleInterrupt(ep, fetchByte());
                 o('$');
                 break;
             case 0xce:  // INTO
-                handleInterrupt(ep, INT4_OVERFLOW);
+                ep->handleInterrupt(ep, INT4_OVERFLOW);
                 break;
             case 0xcf:  // IRET
                 o('I');

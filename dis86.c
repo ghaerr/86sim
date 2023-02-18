@@ -152,6 +152,7 @@ int main(int ac, char **av)
     }
 #endif
 
+    g_high.enabled = isatty(1);
     d.e = &e;
     if (strchr(*av, ':')) {
         sscanf(*av, "%lx:%lx#%ld", &seg, &off, &count);

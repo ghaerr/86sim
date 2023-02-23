@@ -26,7 +26,10 @@ testdos: sim86
 	./sim86 -va test.exe
 	@#./sim-dos hexdump.exe
 
-sim86: sim86.c 8086.c disasm.c dissim.c discolor.c syms.c loader-elks.c syscall-elks.c loader-dos.c syscall-dos.c
+testbin: sim86
+	./sim86 -va basic.bin
+
+sim86: sim86.c 8086.c disasm.c dissim.c discolor.c syms.c loader-elks.c syscall-elks.c loader-dos.c syscall-dos.c loader-bin.c
 	$(CC) $(CFLAGS) -o $@ $^
 
 dis86: dis86.c disasm.c dissim.c discolor.c syms.c

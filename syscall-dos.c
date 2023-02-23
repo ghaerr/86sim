@@ -12,9 +12,11 @@
 
 #if BLINK16
 #include "blink/machine.h"
+#define f_verbose   0
+#else
+extern int f_verbose;
 #endif
 
-extern int f_verbose;
 extern  Word loadSegment;
 
 static char* pathBuffers[2];
@@ -25,8 +27,7 @@ static void* alloc(size_t bytes)
 {
     void* r = malloc(bytes);
     if (r == 0) {
-        fprintf(stderr, "Out of memory\n");
-        exit(1);
+        runtimeError("Out of memory\n");
     }
     return r;
 }
@@ -43,7 +44,6 @@ static void init()
     fileDescriptors[3] = STDOUT_FILENO;
     fileDescriptors[4] = STDOUT_FILENO;
     fileDescriptors[5] = -1;
-
 }
 
 static char* initString(Word offset, int seg, int write, int buffer, int bytes)
@@ -107,12 +107,7 @@ int checkStackDOS(struct exe *e)
 
 static int SysExit(struct exe *e, int rc)
 {
-#if BLINK16
-    extern void ReactiveDraw(void);
-    ReactiveDraw();
-#else
     if (f_verbose) printf("EXIT %d\n", rc);
-#endif
     exit(rc);
     return -1;
 }
@@ -121,18 +116,17 @@ static int SysWrite(struct exe *e, int fd, char *buf, size_t n)
 {
 #if BLINK16
     extern ssize_t ptyWrite(int fd, char *buf, int len);
-    extern struct Machine m;        // FIXME rewrite
-    SetWriteAddr(&m, buf-(char *)ram, n);
+    SetWriteAddr(g_machine, physicalAddress(dx(), DS, false), n);
     return ptyWrite(fd, buf, n);
 #else
     return write(fd, buf, n);
 #endif
 }
 
-void handleInterruptDOS(struct exe *e, int intno)
+int handleSyscallDOS(struct exe *e, int intno)
 {
         int fileDescriptor;
-        char *p;
+        char *p, *addr;
         DWord data;
         static int once = 0;
 
@@ -150,8 +144,9 @@ void handleInterruptDOS(struct exe *e, int intno)
                         setES(data);
                         break;
                     case 0x2109:
-                        p = strchr((char *)dsdx(), '$');
-                        if (p) SysWrite(e, STDOUT_FILENO, (char *)dsdx(), p-(char *)dsdx());
+                        addr = dsdx();
+                        p = strchr(addr, '$');
+                        if (p) SysWrite(e, STDOUT_FILENO, addr, p-addr);
                         break;
                     case 0x2130:
                         setAX(0x1403);
@@ -249,7 +244,7 @@ void handleInterruptDOS(struct exe *e, int intno)
                             setAX(6);  // Invalid handle
                             break;
                         }
-                        data = write(fileDescriptor, dsdxparms(false, cx()), cx());
+                        data = SysWrite(e, fileDescriptor, dsdxparms(false, cx()), cx());
                         if (data == (DWord)-1) {
                             setCF(true);
                             setAX(dosError(errno));
@@ -370,6 +365,7 @@ void handleInterruptDOS(struct exe *e, int intno)
                     default:
                         runtimeError("Unknown DOS/BIOS call: int 0x%02x, "
                             "ah = 0x%02x", intno, (unsigned)ah());
-                        break;
+                        return 0;
                 }
+                return 1;
 }

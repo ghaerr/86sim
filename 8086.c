@@ -15,7 +15,11 @@
 #include "disasm.h"
 #include "exe.h"        /* required for handleInterrupt/checkStack */
 
+#if BLINK16
+#include "blink/machine.h"
+#else
 typedef int bool;
+#endif
 
 /* emulator globals */
 Word registers[12];
@@ -81,7 +85,7 @@ void initExecute(void)
 
 static void divideOverflow(void)
 {
-    ep->handleInterrupt(ep, INT0_DIV_ERROR);
+    handleInterrupt(ep, INT0_DIV_ERROR);
     data = source = 1;
 }
 
@@ -131,29 +135,45 @@ DWord physicalAddress(Word offset, int seg, int write)
 
 Byte readByte(Word offset, int seg)
 {
-    return ram[physicalAddress(offset, seg, false)];
+    DWord a = physicalAddress(offset, seg, false);
+#if BLINK16
+    if (seg != CS) SetReadAddr(g_machine, a, 1);
+#endif
+    return ram[a];
 }
 
 Word readWordSeg(Word offset, int seg)
 {
-    Word r = readByte(offset, seg);
-    return r + (readByte(offset + 1, seg) << 8);
+    DWord a = physicalAddress(offset, seg, false);
+    Word r = ram[a];
+#if BLINK16
+    if (seg != CS) SetReadAddr(g_machine, a, 2);
+#endif
+    return r | (ram[physicalAddress(offset + 1, seg, false)] << 8);
+}
+
+void writeByte(Byte value, Word offset, int seg)
+{
+    DWord a = physicalAddress(offset, seg, true);
+    ram[a] = value;
+#if BLINK16
+    if (seg != CS) SetWriteAddr(g_machine, a, 1);
+#endif
+}
+
+void writeWord(Word value, Word offset, int seg)
+{
+    DWord a = physicalAddress(offset, seg, true);
+    ram[a] = value;
+    ram[physicalAddress(offset + 1, seg, true)] = value >> 8;
+#if BLINK16
+    if (seg != CS) SetWriteAddr(g_machine, a, 2);
+#endif
 }
 
 static Word readwb(Word offset, int seg)
 {
     return wordSize ? readWordSeg(offset, seg) : readByte(offset, seg);
-}
-
-void writeByte(Byte value, Word offset, int seg)
-{
-    ram[physicalAddress(offset, seg, true)] = value;
-}
-
-void writeWord(Word value, Word offset, int seg)
-{
-    writeByte((Byte)value, offset, seg);
-    writeByte((Byte)(value >> 8), offset + 1, seg);
 }
 
 static void writewb(Word value, Word offset, int seg)
@@ -581,12 +601,21 @@ void executeInstruction(void)
             case 0xf4:  // HLT
                 runtimeError("Invalid opcode %02x", opcode);
                 break;
-            case 0xe4: case 0xe5: case 0xe6: case 0xe7:  // IN, OUT ib
+            case 0xe4: case 0xe5:   // IN ib
                 (void)fetchByte();
-                //FIXME implement IN/OUT
+                //FIXME implement, returns -1 for now
+                data = -1; setAccum();
                 break;
-            case 0xec: case 0xed: case 0xee: case 0xef:  // IN, OUT dx
-                //FIXME implement IN/OUT
+            case 0xe6: case 0xe7:   // OUT ib
+                (void)fetchByte();
+                //FIXME implement
+                break;
+            case 0xec: case 0xed:   // IN dx
+                //FIXME implement, returns -1 for now
+                data = -1; setAccum();
+                break;
+            case 0xee: case 0xef:   // OUT dx
+                //FIXME implement
                 break;
             case 0x70: case 0x71: case 0x72: case 0x73:
             case 0x74: case 0x75: case 0x76: case 0x77:
@@ -781,14 +810,14 @@ void executeInstruction(void)
                 o('m');
                 break;
             case 0xcc:  // INT 3
-                ep->handleInterrupt(ep, INT3_BREAKPOINT);
+                handleInterrupt(ep, INT3_BREAKPOINT);
                 break;
             case 0xcd:
-                ep->handleInterrupt(ep, fetchByte());
+                handleInterrupt(ep, fetchByte());
                 o('$');
                 break;
             case 0xce:  // INTO
-                ep->handleInterrupt(ep, INT4_OVERFLOW);
+                handleInterrupt(ep, INT4_OVERFLOW);
                 break;
             case 0xcf:  // IRET
                 o('I');
@@ -920,7 +949,8 @@ void executeInstruction(void)
                 o('j');
                 jumpShort(fetchByte(), true);
                 break;
-            case 0xf2: case 0xf3:  // REP
+            case 0xf2:  // REPNZ
+            case 0xf3:  // REPZ
                 o('r');
                 rep = opcode == 0xf2 ? 1 : 2;
                 prefix = true;

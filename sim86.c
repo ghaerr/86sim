@@ -40,6 +40,29 @@ void runtimeError(const char *msg, ...)
     exit(1);
 }
 
+void handleInterrupt(struct exe *e, int intno)
+{
+    if (intno == 0x80 || intno == 0x21) {
+        if (!e->handleSyscall(e, intno))
+            runtimeError("Unimplemented system call\n");
+        return;
+    }
+
+    switch (intno) {
+    case INT0_DIV_ERROR:
+        runtimeError("Divide by zero");
+        return;
+    case INT3_BREAKPOINT:
+        runtimeError("Breakpoint trap");
+        return;
+    case INT4_OVERFLOW:
+        runtimeError("Overflow trap");
+        return;
+    default:
+        runtimeError("Unknown INT 0x%02x", intno);
+    }
+}
+
 void usage(void)
 {
     printf("Usage: %s [-vaoc] <program name>\n", program_file);
@@ -79,7 +102,9 @@ int main(int argc, char *argv[])
 
     initMachine(&e);
     char *p = strrchr(argv[0], '.');
-    if (!strncmp(p, ".exe", 5) || !strncmp(p, ".com", 5))
+    if (!strncmp(p, ".bin", 5))
+        loadExecutableBinary(&e, argv[0], argc, argv, environ);
+    else if (!strncmp(p, ".exe", 5) || !strncmp(p, ".com", 5))
         loadExecutableDOS(&e, argv[0], argc, argv, environ);
     else loadExecutableElks(&e, argv[0], argc, argv, environ);
     sym_read_exe_symbols(&e, argv[0]);

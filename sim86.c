@@ -102,6 +102,7 @@ int main(int argc, char *argv[])
 
     initMachine(&e);
     char *p = strrchr(argv[0], '.');
+    if (!p) p = argv[0];
     if (!strncmp(p, ".bin", 5))
         loadExecutableBinary(&e, argv[0], argc, argv, environ);
     else if (!strncmp(p, ".exe", 5) || !strncmp(p, ".com", 5))
